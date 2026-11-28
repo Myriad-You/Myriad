@@ -2,7 +2,7 @@
 use super::types::TableDef;
 use super::{
     tables_agent, tables_analytics, tables_core, tables_federation, tables_local_music,
-    tables_phantasi, tables_tapp,
+    tables_phantasi, tables_rig_api, tables_tapp,
 };
 
 pub(crate) fn get_expected_schema() -> Vec<TableDef> {
@@ -13,5 +13,6 @@ pub(crate) fn get_expected_schema() -> Vec<TableDef> {
     tables.extend(tables_federation::tables());
     tables.extend(tables_analytics::tables());
     tables.extend(tables_local_music::tables());
+    tables.extend(tables_rig_api::tables());
     tables
 }

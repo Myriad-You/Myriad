@@ -1046,5 +1046,29 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["user_id".into(), "kind".into(), "created_at".into()],
             is_unique: false,
         },
+        IndexDef {
+            name: "idx_rig_api_tenants_owner".into(),
+            table: "rig_api_tenants".into(),
+            columns: vec!["owner_user_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_rig_api_keys_prefix".into(),
+            table: "rig_api_keys".into(),
+            columns: vec!["prefix".into()],
+            is_unique: true,
+        },
+        IndexDef {
+            name: "idx_rig_api_keys_tenant".into(),
+            table: "rig_api_keys".into(),
+            columns: vec!["tenant_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_rig_api_keys_created_by".into(),
+            table: "rig_api_keys".into(),
+            columns: vec!["created_by_user_id".into()],
+            is_unique: false,
+        },
     ]
 }

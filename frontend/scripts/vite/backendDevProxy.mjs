@@ -263,6 +263,8 @@ function isBackendDevProxyPath(urlPath, userAgent) {
   const path = requestPathname(urlPath)
   if (
     path.startsWith('/api/') ||
+    path === '/rig-api' ||
+    path.startsWith('/rig-api/') ||
     path === '/health' ||
     path === '/ready' ||
     path === '/sitemap.xml' ||

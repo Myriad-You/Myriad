@@ -679,6 +679,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("rig_jobs.sql"))
             .await?;
 
+        // 形象 API 的租户、它们调用用的密钥、配额用到了多少。
+        // schema_check::ensure_rig_api_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("rig_api.sql"))
+            .await?;
+
         Ok(())
     }
 
@@ -687,6 +694,10 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .get_connection()
             .execute_unprepared(
                 r#"
+DROP TABLE IF EXISTS rig_api_request_windows;
+DROP TABLE IF EXISTS rig_api_job_usage;
+DROP TABLE IF EXISTS rig_api_keys;
+DROP TABLE IF EXISTS rig_api_tenants;
 DROP TABLE IF EXISTS rig_job_keys;
 DROP TABLE IF EXISTS rig_job_steps;
 DROP TABLE IF EXISTS rig_jobs;

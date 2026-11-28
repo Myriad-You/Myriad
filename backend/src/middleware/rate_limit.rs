@@ -42,6 +42,17 @@ const COMPUTE_MAX: usize = 45;
 /// First-party analytics collect+pageview shared bucket.
 const ANALYTICS_WRITE_MAX: usize = 90;
 
+/// The rig API (`/rig-api/*`) is not held to the per-IP buckets: a request
+/// with a good key is held to its tenant's own limit, which is many
+/// clients' worth behind one address. What an address may do there is fail:
+/// once `RIG_API_REFUSED_MAX` of its requests were refused for their key in
+/// `RIG_API_REFUSED_WINDOW`, it gets 429 `rig_api_ip_rate_limited` for every
+/// request there until the window passes, so keys cannot be guessed and the
+/// gate cannot be flooded without bound.
+const RIG_API_REFUSED_MAX: usize = 60;
+const RIG_API_REFUSED_WINDOW: Duration = Duration::from_secs(60);
+const RIG_API_REFUSED_BUCKET: &str = "rig_api_refused";
+
 /// Reserved path-bucket key for the per-IP aggregate counter (not a real endpoint).
 const IP_TOTAL_KEY: &str = "__ip_total__";
 
@@ -140,6 +151,20 @@ impl RateLimiter {
         true
     }
 
+    /// Whether `key` of `ip` is at `max_requests` in its current window,
+    /// counting nothing.
+    fn bucket_full(&self, ip: IpAddr, key: &str, max_requests: usize, window: Duration) -> bool {
+        let shard = self.lock_shard(ip);
+        shard
+            .records
+            .get(&ip)
+            .and_then(|records| records.get(key))
+            .is_some_and(|record| {
+                Instant::now().duration_since(record.window_start) <= window
+                    && record.count >= max_requests
+            })
+    }
+
     /// Per-IP hard ceiling across all endpoints for `IP_HARD_CAP_WINDOW`.
     ///
     /// Returns `true` if the request is allowed (and counts it), `false` if the
@@ -233,6 +258,10 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
     // Get endpoint path
     let path = req.uri().path().to_string();
 
+    if is_rig_api(&path) {
+        return rig_api_limit(ip, req, next).await;
+    }
+
     // 1) Per-IP aggregate hard ceiling across all endpoints (before path buckets).
     // If exceeded, reject immediately without counting path-specific keys.
     if !RATE_LIMITER.check_ip_hard_cap(ip) {
@@ -324,6 +353,51 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
     }
 
     next.run(req).await
+}
+
+fn is_rig_api(path: &str) -> bool {
+    path.strip_prefix(crate::api::rig_api::PATH_SPACE)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// The rig API's per-address bound: only its refused requests count.
+async fn rig_api_limit(ip: IpAddr, req: Request, next: Next) -> Response {
+    if RATE_LIMITER.bucket_full(
+        ip,
+        RIG_API_REFUSED_BUCKET,
+        RIG_API_REFUSED_MAX,
+        RIG_API_REFUSED_WINDOW,
+    ) {
+        tracing::warn!("Rig API refusals over the limit for IP {}", ip);
+        let retry_after = RIG_API_REFUSED_WINDOW.as_secs();
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(axum::http::header::RETRY_AFTER, retry_after.to_string())],
+            Json(json!({
+                "error": "Too many refused requests from this address",
+                "code": "rig_api_ip_rate_limited",
+                "message": format!(
+                    "Too many requests from this address were refused for their API key; \
+                     try again in {retry_after} seconds."
+                ),
+                "retry_after": retry_after
+            })),
+        )
+            .into_response();
+    }
+    let response = next.run(req).await;
+    if matches!(
+        response.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+    ) {
+        RATE_LIMITER.check_bucket(
+            ip,
+            RIG_API_REFUSED_BUCKET,
+            RIG_API_REFUSED_MAX,
+            RIG_API_REFUSED_WINDOW,
+        );
+    }
+    response
 }
 
 /// Check if endpoint is sensitive (login, password change, registration, etc.)

@@ -29,6 +29,7 @@ mod tables_core;
 mod tables_federation;
 mod tables_local_music;
 mod tables_phantasi;
+mod tables_rig_api;
 mod tables_tapp;
 mod types;
 

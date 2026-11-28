@@ -91,6 +91,27 @@ pub fn redact_secrets(input: &str) -> String {
     for key in SECRET_ASSIGNMENT_KEYS {
         out = redact_kv_assignment(&out, key);
     }
+    redact_rig_api_keys(&out)
+}
+
+/// The rig API's keys (`mrk_` + 12 + `_` + 43 base62) wherever they appear,
+/// prefix and all, so a key echoed into a message never reaches a log.
+fn redact_rig_api_keys(input: &str) -> String {
+    const PREFIX: &str = "mrk_";
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(idx) = rest.find(PREFIX) {
+        let after = &rest[idx + PREFIX.len()..];
+        let body = prefix_len_while(after, |c| c.is_ascii_alphanumeric() || c == '_');
+        out.push_str(&rest[..idx]);
+        if body >= 12 {
+            out.push_str("mrk_[REDACTED]");
+        } else {
+            out.push_str(&rest[idx..idx + PREFIX.len() + body]);
+        }
+        rest = &after[body..];
+    }
+    out.push_str(rest);
     out
 }
 
@@ -169,6 +190,19 @@ fn prefix_len_while(input: &str, predicate: impl Fn(char) -> bool) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacts_rig_api_keys_anywhere() {
+        let key = format!("mrk_{}_{}", "Ab3".repeat(4), "z9".repeat(21) + "q");
+        let r = redact_secrets(&format!("refused key={key}, and {key}"));
+        assert!(!r.contains(&key[4..]), "{r}");
+        assert_eq!(r.matches("mrk_[REDACTED]").count(), 2, "{r}");
+        // A mention of the prefix alone is left as it is.
+        assert_eq!(
+            redact_secrets("keys start with mrk_ then"),
+            "keys start with mrk_ then"
+        );
+    }
 
     #[test]
     fn redacts_bearer() {

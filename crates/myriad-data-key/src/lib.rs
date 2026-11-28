@@ -56,6 +56,7 @@ use std::sync::OnceLock;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce, aead::Aead};
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 const AES_NONCE_LEN: usize = 12;
@@ -63,6 +64,9 @@ const KEY_LEN: usize = 32;
 
 /// 密文前缀。改动它等于换格式，必须同时保留旧前缀的解密路径。
 pub const CIPHERTEXT_PREFIX: &str = "myriad-enc:v1:";
+
+/// What every subkey's derivation begins with ([`DataKey::derive_subkey`]).
+const SUBKEY_LABEL: &[u8] = b"myriad-data-key-subkey-v1\0";
 
 /// 密钥文件名（位于 `DATA_DIR` 下）
 const KEY_FILE_NAME: &str = ".secret-key";
@@ -117,6 +121,33 @@ impl DataKey {
         hasher.update(b"myriad-data-key-fingerprint:");
         hasher.update(self.key);
         hex::encode(&hasher.finalize()[..4])
+    }
+
+    /// A 32-byte key for one purpose, derived from the data key.
+    ///
+    /// HMAC-SHA256 under the data key over a fixed label, the length of
+    /// `purpose` (4 bytes, big-endian) and `purpose`, so no two purposes and
+    /// no other use of the data key give the same bytes. `purpose` is a
+    /// constant naming one use (`"rig-api-key-hash-v1"`), never input from a
+    /// request. The result is as secret as the data key: it is used inside
+    /// this process and never stored, logged or sent anywhere.
+    pub fn derive_subkey(&self, purpose: &'static str) -> [u8; KEY_LEN] {
+        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&self.key)
+            .expect("HMAC takes a key of any length");
+        mac.update(SUBKEY_LABEL);
+        let len = u32::try_from(purpose.len()).expect("a purpose is a short constant");
+        mac.update(&len.to_be_bytes());
+        mac.update(purpose.as_bytes());
+        mac.finalize().into_bytes().into()
+    }
+
+    /// A data key of the given bytes, for a caller holding one of its own
+    /// (a test, a tool reading an exported key). Its source reads `Env`.
+    pub fn from_key_bytes(key: [u8; KEY_LEN]) -> Self {
+        Self {
+            key,
+            source: KeySource::Env,
+        }
     }
 
     /// Build AES-256-GCM from the fixed 32-byte data key.
@@ -651,6 +682,24 @@ mod tests {
         ] {
             assert!(k.decrypt(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn subkeys_are_stable_and_separated_by_purpose_and_key() {
+        let a = test_key(1).derive_subkey("purpose-a");
+        assert_eq!(a, test_key(1).derive_subkey("purpose-a"));
+        assert_ne!(a, test_key(1).derive_subkey("purpose-b"));
+        assert_ne!(a, test_key(2).derive_subkey("purpose-a"));
+        assert_ne!(a, test_key(1).key);
+        // The label and length prefix keep it from being a plain HMAC of the purpose.
+        let mut plain = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&test_key(1).key).unwrap();
+        plain.update(b"purpose-a");
+        let plain: [u8; KEY_LEN] = plain.finalize().into_bytes().into();
+        assert_ne!(a, plain);
+        assert_eq!(
+            DataKey::from_key_bytes([1; KEY_LEN]).derive_subkey("purpose-a"),
+            a
+        );
     }
 
     #[test]

@@ -39,6 +39,7 @@ pub mod profile_text_source; // 名称/简介文案来源（与画像源独立�
 pub mod prompt;
 pub mod proxy;
 pub mod reports;
+pub mod rig_api; // The rig API (`/rig-api/v1`) and its admin management
 pub mod seo;
 pub mod seo_geo;
 pub use crate::services::seo_policy;

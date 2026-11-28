@@ -828,6 +828,16 @@ pub struct DynamicConfig {
     pub resident_quota_per_app: i32,
     /// 全站常驻名额上限
     pub resident_quota_site_total: i32,
+    // 形象 API 租户配额的默认值（租户自己没设的那几项用它）
+    /// 一个租户同时在跑的生成任务数
+    pub rig_api_concurrent_jobs: i32,
+    /// 一个租户每期能开始的生成任务数
+    pub rig_api_jobs_per_period: i32,
+    /// 「每期」是 UTC 的一天（`day`）还是一个月（`month`）
+    pub rig_api_job_period: String,
+    /// 一个租户每分钟的请求数
+    pub rig_api_requests_per_minute: i32,
+
 
     /// 内存节约模式（高级设置）：在当前有界均衡档上再收一档，适合 ~1 GiB 主机。
     /// 默认 false = 均衡档。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
@@ -1077,6 +1087,12 @@ impl Default for DynamicConfig {
             stash_hidden_idle_seconds: 300,
             resident_quota_per_app: 1,
             resident_quota_site_total: 3,
+
+            // 形象 API 租户配额默认值
+            rig_api_concurrent_jobs: 2,
+            rig_api_jobs_per_period: 100,
+            rig_api_job_period: "month".to_string(),
+            rig_api_requests_per_minute: 120,
 
             memory_saver_enabled: false,
             precise_location_enabled: false,

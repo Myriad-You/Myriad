@@ -117,6 +117,10 @@ fn test_folded_extension_tables_in_expected_schema() {
         "rig_jobs",
         "rig_job_steps",
         "rig_job_keys",
+        "rig_api_tenants",
+        "rig_api_keys",
+        "rig_api_job_usage",
+        "rig_api_request_windows",
         // 005 扩展
         "federation_content_filters",
         "federation_policy_settings",
@@ -707,6 +711,10 @@ DROP TABLE agent_takeback_check;
 DROP TABLE rig_job_keys;
 DROP TABLE rig_job_steps;
 DROP TABLE rig_jobs;
+DROP TABLE rig_api_request_windows;
+DROP TABLE rig_api_job_usage;
+DROP TABLE rig_api_keys;
+DROP TABLE rig_api_tenants;
 INSERT INTO agent_persona (id, name, updated_at) VALUES ('site', 'Merope', NOW());
 ALTER TABLE agent_persona DROP COLUMN zone, DROP COLUMN field_revs;
 INSERT INTO agent_memories (id, kind, content, source, venue, valid_from, created_at, updated_at)
@@ -746,6 +754,21 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
         .unwrap()
         .unwrap();
     assert!(jobs.try_get::<bool>("", "there").unwrap());
+    // A database from before the rig API gets its tenants, keys and counters.
+    let rig_api = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT to_regclass('rig_api_tenants') IS NOT NULL \
+             AND to_regclass('rig_api_keys') IS NOT NULL \
+             AND to_regclass('rig_api_job_usage') IS NOT NULL \
+             AND to_regclass('idx_rig_api_keys_created_by') IS NOT NULL \
+             AND to_regclass('rig_api_request_windows') IS NOT NULL \
+             AND to_regclass('idx_rig_api_keys_prefix') IS NOT NULL AS there",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(rig_api.try_get::<bool>("", "there").unwrap());
     // On a database that ran 004 and was healed, the file runs again as it is.
     db.execute_unprepared(include_str!("../../../migrations/memory_nodes.sql"))
         .await

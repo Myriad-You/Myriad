@@ -810,6 +810,9 @@ fn is_backend_path(path: &str, user_agent: &str) -> bool {
 
 fn is_backend_path_for(path: &str, user_agent: &str, query: &str) -> bool {
     if path.starts_with("/api/")
+        // The rig API: outside developers' calls, with an API key.
+        || path == "/rig-api"
+        || path.starts_with("/rig-api/")
         || path == "/health"
         || path == "/ready"
         // Public SEO sitemap + robots (backend api::seo)
@@ -2025,6 +2028,9 @@ mod tests {
         ));
         assert!(is_backend_path("/health", browser));
         assert!(is_backend_path("/ready", browser));
+        // The rig API
+        assert!(is_backend_path("/rig-api/v1/me", browser));
+        assert!(!is_backend_path("/rig-apis", browser));
         // Public SEO sitemap + robots
         assert!(is_backend_path("/sitemap.xml", browser));
         assert!(is_backend_path("/robots.txt", browser));
