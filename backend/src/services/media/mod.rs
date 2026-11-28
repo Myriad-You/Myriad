@@ -93,8 +93,7 @@ pub async fn resolve_guest_media_bytes(
     Ok((row.mime, bytes))
 }
 pub use validate::{
-    allowed_media_mimes, audio_mime_from_filename, canonical_mime_alias, decode_image,
-    validate_bytes,
+    allowed_media_mimes, audio_mime_from_filename, canonical_mime_alias, validate_bytes,
 };
 
 /// Resolve a multipart audio MIME for storage: alias-canonicalize, then filename fallback.

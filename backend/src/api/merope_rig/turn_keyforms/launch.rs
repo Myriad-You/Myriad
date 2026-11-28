@@ -1,46 +1,7 @@
 //! 开一个任务：领下它（`claim_for`），再在它自己的任务里从任务记录跑——归谁、从哪张图做、
-//! 做成什么都从记录读回（`run_recorded`），生图和拆层服务用站点配置的。站点设定的页面和不需要
-//! 设定的调用方（`start_input`）都从这里开。
+//! 做成什么都从记录读回（`run_recorded`），生图和拆层服务用站点配置的。
 
 use super::*;
-
-/// A job of a picture that needs no persona: `make` of `picture`, claimed
-/// for `owner` by `caller` and set running. The picture is the owner's
-/// (`input::supply_picture`); nothing outside the job is checked at its end.
-/// The job's id, and whether this call claimed it (false: the one its key
-/// gave before, or the one running already for the same picture).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no handler of this build takes a caller's own picture"
-    )
-)]
-pub(super) async fn start_input(
-    db: DatabaseConnection,
-    owner: rig_jobs::Owner,
-    caller: String,
-    idempotency_key: Option<String>,
-    picture: PictureRef,
-    make: Make,
-    providers: Providers,
-) -> ApiResult<(String, bool)> {
-    load_picture(&owner.storage(), &picture).await?;
-    let input = JobInput::Picture {
-        picture: picture.clone(),
-        make,
-    };
-    let claim = Claim {
-        owner,
-        caller,
-        idempotency_key,
-        request: input.to_value(),
-        subject: picture.name(),
-        input,
-        holds: Holds::AsMade,
-    };
-    start_claimed(db, claim, providers, Lineage::default()).await
-}
 
 /// The site lineage an archive of the job keeps: the full-body set it was
 /// made for, and its master's generation contract.
@@ -106,13 +67,17 @@ pub(super) async fn start_claimed(
 /// storage its cache and files go to) and its input (the picture, read from
 /// where the input names it, and what is made of it); `providers` are the
 /// site's, never kept on the record.
-async fn run_recorded(db: DatabaseConnection, id: String, providers: Providers) -> ApiResult<Made> {
+pub(super) async fn run_recorded(
+    db: DatabaseConnection,
+    id: String,
+    providers: Providers,
+) -> ApiResult<Made> {
     let (owner, input) = recorded(&db, &id).await?;
     let JobInput::Picture { picture, make } = input else {
         return Err(internal_error("a kept job is not run from a picture"));
     };
     let storage = owner.storage();
-    let reference = load_picture(&storage, &picture).await?;
+    let reference = load_picture(&picture).await?;
     let Providers {
         generation,
         client,
@@ -155,7 +120,10 @@ async fn run_recorded(db: DatabaseConnection, id: String, providers: Providers) 
 const RECORD_READS: usize = 3;
 
 /// Whose a job is and what its steps run from, as its record keeps them.
-async fn recorded(db: &DatabaseConnection, id: &str) -> ApiResult<(rig_jobs::Owner, JobInput)> {
+pub(super) async fn recorded(
+    db: &DatabaseConnection,
+    id: &str,
+) -> ApiResult<(rig_jobs::Owner, JobInput)> {
     let mut tries = 0;
     let row = loop {
         tries += 1;

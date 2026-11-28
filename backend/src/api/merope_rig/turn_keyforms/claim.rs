@@ -4,13 +4,12 @@
 
 use super::*;
 
-/// A job as it is claimed: whose, by which caller under which key, what was
+/// A job as it is claimed: whose (its caller is its owner's), under which key, what was
 /// asked in the caller's terms (its key's digest is of it, its page reads it
 /// back), what joins a job already running, what its steps run from, and
 /// what its result must still hold at its end.
 pub(super) struct Claim {
     pub(super) owner: rig_jobs::Owner,
-    pub(super) caller: String,
     pub(super) idempotency_key: Option<String>,
     pub(super) request: Value,
     pub(super) subject: String,
@@ -31,8 +30,14 @@ pub(super) struct Submission {
 }
 
 impl Submission {
+    fn owner(&self) -> rig_jobs::Owner {
+        rig_jobs::Owner::Site {
+            user_id: self.user_id,
+        }
+    }
+
     fn caller(&self) -> String {
-        rig_jobs::user_caller(self.user_id)
+        self.owner().caller()
     }
 
     fn input(&self, phase: Phase) -> Value {
@@ -77,10 +82,7 @@ impl Submission {
     /// result held to the persona's master at its end.
     pub(super) fn claim(&self, phase: Phase) -> Claim {
         Claim {
-            owner: rig_jobs::Owner::Site {
-                user_id: self.user_id,
-            },
-            caller: self.caller(),
+            owner: self.owner(),
             idempotency_key: self.idempotency_key.clone(),
             request: self.input(phase),
             subject: format!(
@@ -189,7 +191,6 @@ pub(super) async fn claim_for(
         rig_jobs::NewJob {
             id: id.clone(),
             kind: phase.as_str().to_owned(),
-            caller: claim.caller,
             owner: claim.owner,
             idempotency_key: claim.idempotency_key,
             request_digest: rig_jobs::digest(&claim.request),

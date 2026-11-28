@@ -184,7 +184,9 @@ fn sniff_magic(bytes: &[u8], mime: &str) -> Result<(), MediaError> {
         "video/webm" => bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]),
         "video/mp4" | "video/quicktime" => bytes.len() >= 8 && &bytes[4..8] == b"ftyp",
         "audio/flac" => bytes.starts_with(b"fLaC"),
-        "audio/wav" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE",
+        "audio/wav" => {
+            bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE"
+        }
         "audio/ogg" => bytes.starts_with(b"OggS"),
         "audio/mpeg" => {
             bytes.starts_with(b"ID3")
@@ -206,8 +208,7 @@ fn sniff_magic(bytes: &[u8], mime: &str) -> Result<(), MediaError> {
     }
 }
 
-/// A reader of `bytes` held to the decode limits.
-fn limited_reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, MediaError> {
+fn decode_image_dimensions(bytes: &[u8]) -> Result<(i32, i32), MediaError> {
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|_| MediaError::invalid("Invalid image"))?;
@@ -216,21 +217,7 @@ fn limited_reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u
     limits.max_image_height = Some(MAX_IMAGE_EDGE);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
-    Ok(reader)
-}
-
-/// The image decoded whole within the same dimensions and decode limits as
-/// `validate_bytes`, so that a picture whose header reads but whose body is
-/// cut short or corrupt is refused too.
-pub fn decode_image(bytes: &[u8]) -> Result<image::DynamicImage, MediaError> {
-    decode_image_dimensions(bytes)?;
-    limited_reader(bytes)?
-        .decode()
-        .map_err(|_| MediaError::invalid("Invalid image"))
-}
-
-fn decode_image_dimensions(bytes: &[u8]) -> Result<(i32, i32), MediaError> {
-    let (width, height) = limited_reader(bytes)?
+    let (width, height) = reader
         .into_dimensions()
         .map_err(|_| MediaError::invalid("Invalid image"))?;
     if width == 0

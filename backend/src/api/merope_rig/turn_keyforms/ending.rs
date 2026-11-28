@@ -10,7 +10,9 @@ pub(super) enum Holds {
     /// was made from (`ArchiveMeta`'s), as the import requires: the site's
     /// persona flow.
     PersonaMaster,
-    /// Nothing outside the job: its result is its owner's as made.
+    /// Nothing outside the job: its result is its owner's as made. For
+    /// tests of an owner other than the site.
+    #[cfg(test)]
     AsMade,
 }
 
@@ -22,8 +24,23 @@ pub(super) async fn finish(
     result: ApiResult<Made>,
     meta: ArchiveMeta,
 ) {
-    let (holds, storage) = live::with_job(task_id, |job| (job.holds, job.owner.storage()))
-        .unwrap_or((Holds::PersonaMaster, rig_jobs::Storage::site()));
+    let Some((holds, storage)) = live::with_job(task_id, |job| (job.holds, job.owner.storage()))
+    else {
+        // Only a job this process runs is ended here: without its entry
+        // nothing says what it must hold or whose storage it goes to.
+        tracing::error!(job = %task_id, "turn keyforms job ended without this process running it");
+        let error = json!({
+            "error": "The turn keys job is not run by this process",
+            "code": "turn_keyforms_untracked"
+        });
+        let ending = rig_jobs::Ending::Failed {
+            code: Some("turn_keyforms_untracked".into()),
+            message: error["error"].as_str().map(str::to_owned),
+            detail: error,
+        };
+        end(db, task_id, ending).await;
+        return;
+    };
     let still_current = match holds {
         Holds::PersonaMaster => require_master_match(
             db,
@@ -33,6 +50,7 @@ pub(super) async fn finish(
         )
         .await
         .map(|_| ()),
+        #[cfg(test)]
         Holds::AsMade => Ok(()),
     };
     match (result, still_current) {

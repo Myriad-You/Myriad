@@ -24,7 +24,7 @@ use crate::{
 
 mod trim;
 
-pub(super) const MAX_PORTRAIT_BYTES: usize = 10 * 1024 * 1024;
+const MAX_PORTRAIT_BYTES: usize = 10 * 1024 * 1024;
 
 pub(super) fn uploaded_portrait_reference(
     bytes: impl Into<axum::body::Bytes>,

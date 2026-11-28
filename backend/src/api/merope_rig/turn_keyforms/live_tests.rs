@@ -638,7 +638,6 @@ async fn a_job_whose_lease_was_lost_and_place_taken_stops() {
     let again = rig_jobs::NewJob {
         id: "again".into(),
         kind: "bust".into(),
-        caller: caller(),
         owner: rig_jobs::Owner::Site { user_id: 7 },
         idempotency_key: None,
         request_digest: "d".into(),
@@ -798,7 +797,6 @@ async fn a_page_reads_a_stopping_processs_job_running_until_the_process_lets_it_
         rig_jobs::NewJob {
             id: "late".into(),
             kind: "plain".into(),
-            caller: caller(),
             owner: rig_jobs::Owner::Site { user_id: 7 },
             idempotency_key: None,
             request_digest: "d".into(),

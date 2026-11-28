@@ -30,6 +30,17 @@ impl Owner {
         }
     }
 
+    /// Who asks for the owner's jobs, as their records and keys are kept
+    /// (`caller`): every lookup by caller is the owner's alone. The site's
+    /// is its account, `user:<id>`.
+    pub fn caller(&self) -> String {
+        match self {
+            Self::Site { user_id } => super::user_caller(*user_id),
+            #[cfg(test)]
+            Self::Isolated(name) => format!("test:{name}"),
+        }
+    }
+
     /// The site account the job belongs to, when the owner is one (`owner_user_id`).
     pub fn user_id(&self) -> Option<i32> {
         match self {
@@ -111,6 +122,11 @@ mod tests {
         assert_eq!(Owner::of_record("site", None), None);
         assert_eq!(Owner::of_record("tenant:1", Some(7)), None);
         assert_eq!((site.ledger_subject(), isolated.ledger_subject()), (7, 0));
+        // Each owner asks under its own caller: the site's is its account.
+        assert_eq!(
+            (site.caller(), isolated.caller()),
+            ("user:7".to_owned(), "test:a".to_owned())
+        );
     }
 
     #[test]

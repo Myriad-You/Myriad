@@ -154,9 +154,8 @@ impl State {
 pub struct NewJob {
     pub id: String,
     pub kind: String,
-    /// `user:<id>`.
-    pub caller: String,
-    /// Whose it is: whose storage its results are kept in.
+    /// Whose it is: its caller (`Owner::caller`), and whose storage its
+    /// results are kept in.
     pub owner: Owner,
     pub idempotency_key: Option<String>,
     /// SHA-256 hex of what was asked (`digest`).
@@ -289,8 +288,9 @@ pub(crate) async fn claim_unless(
     lock_claims(&txn).await?;
     fail_interrupted(&txn).await?;
     tidy(&txn).await?;
+    let caller = job.owner.caller();
     if let Some(key) = &job.idempotency_key
-        && let Some(keyed) = by_key(&txn, &job.caller, key).await?
+        && let Some(keyed) = by_key(&txn, &caller, key).await?
     {
         if keyed.holds() {
             if keyed.request_digest != job.request_digest {
@@ -303,7 +303,7 @@ pub(crate) async fn claim_unless(
         txn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "DELETE FROM rig_job_keys WHERE caller = $1 AND idempotency_key = $2",
-            [job.caller.clone().into(), key.clone().into()],
+            [caller.clone().into(), key.clone().into()],
         ))
         .await?;
     }
@@ -313,7 +313,7 @@ pub(crate) async fn claim_unless(
                 DbBackend::Postgres,
                 "SELECT id FROM rig_jobs WHERE caller = $1 AND subject = $2 \
                  AND state IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1",
-                [job.caller.clone().into(), subject.clone().into()],
+                [caller.clone().into(), subject.clone().into()],
             ))
             .await?;
         if let Some(row) = joined {
@@ -344,7 +344,7 @@ pub(crate) async fn claim_unless(
         [
             job.id.clone().into(),
             job.kind.clone().into(),
-            job.caller.clone().into(),
+            caller.into(),
             job.owner.user_id().into(),
             job.owner.scope().into(),
             job.subject.clone().into(),
@@ -433,7 +433,7 @@ async fn keep_key(db: &impl ConnectionTrait, job: &NewJob, job_id: &str) -> Resu
         "INSERT INTO rig_job_keys (caller, idempotency_key, job_id, request_digest) \
          VALUES ($1, $2, $3, $4)",
         [
-            job.caller.clone().into(),
+            job.owner.caller().into(),
             key.clone().into(),
             job_id.into(),
             job.request_digest.clone().into(),
@@ -607,7 +607,7 @@ pub struct JobRow {
     /// `site` for the site's own jobs (`Owner::scope`).
     pub owner_scope: String,
     pub input: Value,
-    /// None: claimed before jobs kept it, by a process that ran it from what it held.
+    /// What its steps run from; a row without one is not run from its record.
     pub pipeline_input: Option<Value>,
     state: String,
     pub progress: Value,

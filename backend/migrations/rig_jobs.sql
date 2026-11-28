@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS rig_jobs (
     -- references, never the bytes. `rig_job_keys.request_digest` is of it.
     input JSONB NOT NULL,
     -- What the job's steps run from, in the pipeline's own terms: its picture
-    -- (a reference, never the bytes) and what is made of it. NULL on a job
-    -- claimed by a process that ran it from what it held instead.
+    -- (a reference, never the bytes) and what is made of it. A row without
+    -- one is not run from its record.
     pipeline_input JSONB,
     state VARCHAR(16) NOT NULL DEFAULT 'queued'
         CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),

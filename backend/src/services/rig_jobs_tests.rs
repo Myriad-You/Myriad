@@ -25,7 +25,6 @@ fn job(id: &str, subject: &str, key: Option<&str>) -> NewJob {
     NewJob {
         id: id.to_owned(),
         kind: "bust".into(),
-        caller: user_caller(7),
         owner: Owner::Site { user_id: 7 },
         idempotency_key: key.map(str::to_owned),
         request_digest: digest(&input),
@@ -162,7 +161,6 @@ async fn the_same_key_gives_the_same_job_until_it_fails_or_expires() {
     ));
     // Another caller's key is its own.
     let other = NewJob {
-        caller: user_caller(8),
         owner: Owner::Site { user_id: 8 },
         ..job("d", "m3", Some("k1"))
     };

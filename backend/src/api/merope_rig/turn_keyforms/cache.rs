@@ -170,10 +170,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// The site's jobs find what jobs of the same master made before: the
-    /// site's cache is where it was, under the same key.
+    /// The site's cache is `merope/turn-keyforms` under the data directory,
+    /// keyed by `SITE_KEY` for this master, providers and Space.
     #[test]
-    fn the_sites_cache_is_where_it_was_under_the_same_key() {
+    fn the_sites_cache_is_under_the_data_directory_by_its_key() {
         let options = see_through::DecomposeOptions::default();
         let cache = TurnCache::for_master(
             &Storage::site(),
