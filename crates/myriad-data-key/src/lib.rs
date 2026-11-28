@@ -56,6 +56,7 @@ use std::sync::OnceLock;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce, aead::Aead};
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 const AES_NONCE_LEN: usize = 12;
@@ -117,6 +118,16 @@ impl DataKey {
         hasher.update(b"myriad-data-key-fingerprint:");
         hasher.update(self.key);
         hex::encode(&hasher.finalize()[..4])
+    }
+
+    /// A 32-byte key for one purpose, derived from the data key:
+    /// HMAC-SHA256 over `context`. Different contexts give unrelated keys, and
+    /// none of them reveals the data key.
+    pub fn derive_subkey(&self, context: &[u8]) -> [u8; KEY_LEN] {
+        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&self.key)
+            .expect("HMAC takes a key of any length");
+        mac.update(context);
+        mac.finalize().into_bytes().into()
     }
 
     /// Build AES-256-GCM from the fixed 32-byte data key.
@@ -651,6 +662,15 @@ mod tests {
         ] {
             assert!(k.decrypt(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn subkeys_are_stable_and_separated_by_context_and_key() {
+        let a = test_key(1).derive_subkey(b"purpose-a");
+        assert_eq!(a, test_key(1).derive_subkey(b"purpose-a"));
+        assert_ne!(a, test_key(1).derive_subkey(b"purpose-b"));
+        assert_ne!(a, test_key(2).derive_subkey(b"purpose-a"));
+        assert_ne!(a, test_key(1).key);
     }
 
     #[test]
