@@ -126,6 +126,12 @@ pub(super) async fn recollection(
                 said: std::collections::HashMap::new(),
             }),
     };
+    // The words recall ranked for bring too the nodes they name, by name
+    // or by another name a node goes by.
+    let query = match turn {
+        Turn::Chat(words) | Turn::Event(words) => Some(words),
+        Turn::Plain => None,
+    };
     if let (Ok(recalled), Some(nodes)) = (&remembered, nodes) {
         let recollection = recall::recollect_here(
             &nodes.shown,
@@ -134,6 +140,7 @@ pub(super) async fn recollection(
             recalled,
             cues.as_ref(),
             super::super::clock::now(),
+            query,
         );
         from_her_nodes(nodes, recollection, recalled, cues.as_ref(), sections);
     } else if let Ok(mut recalled) = remembered {

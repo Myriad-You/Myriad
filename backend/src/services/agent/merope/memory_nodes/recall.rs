@@ -32,6 +32,9 @@ use crate::services::agent::memory::unified::MemoryRecord;
 use crate::services::agent::merope::clock::{self, Zone};
 use crate::services::agent::merope::store::{self, Recalled};
 
+#[cfg(test)]
+pub(crate) use times::recollect_times;
+
 /// Heard pieces about them shown, at most (the native budget).
 pub(crate) const HEARD: usize = 2;
 
@@ -336,7 +339,7 @@ fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
     PickNode {
         id: node.id.clone(),
         name: node.name.clone(),
-        aliases: Vec::new(),
+        aliases: node.aliases.clone(),
         status: node.status,
         gone: node.gone,
         entries: node
@@ -365,32 +368,13 @@ pub(crate) fn recollect(
     cues: Option<&Cues>,
     now: DateTime<Utc>,
 ) -> Recollection {
-    recollect_here(shown, own, None, recalled, cues, now)
+    recollect_here(shown, own, None, recalled, cues, now, None)
 }
 
-/// [`recollect`] with `times` the budget of nodes and entries (and of
-/// heard): the memory bench's control that only recalls more.
-#[cfg(test)]
-pub(crate) fn recollect_times(
-    shown: &Shown,
-    own: &Own,
-    recalled: &Recalled,
-    cues: Option<&Cues>,
-    now: DateTime<Utc>,
-    times: usize,
-) -> Recollection {
-    let base = recall::Budget::default();
-    let budget = recall::Budget {
-        picked: base.picked * times,
-        entries: base.entries * times,
-        about_them: base.about_them * times,
-        together: base.together * times,
-        ..base
-    };
-    recollect_within(shown, own, None, recalled, cues, now, budget, HEARD * times)
-}
-
-/// [`recollect`]; `here` in a group.
+/// [`recollect`]; `here` in a group. `query`: their words, by which a node
+/// not gone, with something on it, comes when they say its name or another
+/// it goes by, though the ranking found nothing on it (the core's
+/// `recall::pick`).
 pub(crate) fn recollect_here(
     shown: &Shown,
     own: &Own,
@@ -398,6 +382,7 @@ pub(crate) fn recollect_here(
     recalled: &Recalled,
     cues: Option<&Cues>,
     now: DateTime<Utc>,
+    query: Option<&str>,
 ) -> Recollection {
     recollect_within(
         shown,
@@ -408,6 +393,7 @@ pub(crate) fn recollect_here(
         now,
         Default::default(),
         HEARD,
+        query,
     )
 }
 
@@ -421,6 +407,7 @@ fn recollect_within(
     now: DateTime<Utc>,
     budget: recall::Budget,
     heard_most: usize,
+    query: Option<&str>,
 ) -> Recollection {
     let thorough = cues.is_some_and(|cues| cues.thorough);
     let (mut ranked, lines) = ranking(recalled);
@@ -461,7 +448,7 @@ fn recollect_within(
         thorough,
         budget,
         today: super::standing::day_of(now.timestamp_micros()),
-        query: None,
+        query: query.map(str::to_string),
     }) else {
         // Ids the core will not take: what was ranked, as before.
         return Recollection {
@@ -724,6 +711,36 @@ fn listed(
     .section
 }
 
+/// The memory bench's control that only recalls more: test code, kept
+/// apart from what she is shown.
+#[cfg(test)]
+mod times {
+    use super::*;
+
+    /// [`recollect`] with `times` the budget of nodes and entries (and of
+    /// heard); `query` as in [`recollect_here`].
+    pub(crate) fn recollect_times(
+        shown: &Shown,
+        own: &Own,
+        recalled: &Recalled,
+        cues: Option<&Cues>,
+        now: DateTime<Utc>,
+        times: usize,
+        query: Option<&str>,
+    ) -> Recollection {
+        let base = recall::Budget::default();
+        let budget = recall::Budget {
+            picked: base.picked * times,
+            entries: base.entries * times,
+            about_them: base.about_them * times,
+            together: base.together * times,
+            ..base
+        };
+        let heard = HEARD * times;
+        recollect_within(shown, own, None, recalled, cues, now, budget, heard, query)
+    }
+}
+
 #[cfg(test)]
 mod more_tests {
     /// More standing on a node than she is shown is said, with how many;
@@ -782,6 +799,7 @@ mod more_tests {
                     id: "n-trees".into(),
                     kind: Some("topic".into()),
                     name: Some("trees".into()),
+                    aliases: Vec::new(),
                     status: None,
                     gone: false,
                     head: json!({}),
@@ -793,6 +811,7 @@ mod more_tests {
                     id: "n-life".into(),
                     kind: Some("topic".into()),
                     name: Some("life".into()),
+                    aliases: Vec::new(),
                     status: None,
                     gone: false,
                     head: json!({
@@ -817,6 +836,7 @@ mod more_tests {
                     id: "n-person".into(),
                     kind: Some("person".into()),
                     name: Some("friend".into()),
+                    aliases: Vec::new(),
                     status: None,
                     gone: false,
                     head: json!({}),
@@ -885,6 +905,7 @@ mod more_tests {
                     id: "n-live-uuid-123".into(),
                     kind: Some("topic".into()),
                     name: Some("coffee".into()),
+                    aliases: Vec::new(),
                     status: None,
                     gone: false,
                     head: json!({
@@ -921,6 +942,7 @@ mod more_tests {
                     id: "n-gone-uuid-999".into(),
                     kind: Some("topic".into()),
                     name: Some("deleted-topic".into()),
+                    aliases: Vec::new(),
                     status: None,
                     gone: true,
                     head: json!({
@@ -1004,7 +1026,15 @@ mod more_tests {
             speaker: 7,
             names: HashMap::new(),
         };
-        let grp_rec = recollect_here(&shown, &Own::default(), Some(&here), &recalled, None, now);
+        let grp_rec = recollect_here(
+            &shown,
+            &Own::default(),
+            Some(&here),
+            &recalled,
+            None,
+            now,
+            None,
+        );
         assert!(grp_rec.resident.is_empty());
     }
 }

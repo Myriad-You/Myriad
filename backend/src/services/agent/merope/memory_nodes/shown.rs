@@ -55,6 +55,8 @@ pub(crate) struct Node {
     /// `topic`, `task` or `person`.
     pub kind: Option<String>,
     pub name: Option<String>,
+    /// Other names or aliases this node goes by in the same audience.
+    pub aliases: Vec<String>,
     /// Absent: active. Only for a node still there.
     pub status: Option<Status>,
     /// Forgotten, taken back, or gone into another.
@@ -421,12 +423,15 @@ pub(crate) async fn shown<C: ConnectionTrait>(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT node_id, kind, name, status, node FROM agent_node_heads \
+            "SELECT node_id, kind, name, aliases, status, node FROM agent_node_heads \
              WHERE user_id = $1 AND audience = $2 ORDER BY node_id",
             [user_id.into(), audience.into()],
         ))
         .await?;
     let mut heads = Vec::new();
+    // The other names each goes by, beside its head: recall matches their
+    // words against them as against its name.
+    let mut aliases = Vec::new();
     for row in &rows {
         heads.push((
             row.try_get::<String>("", "node_id")?,
@@ -435,6 +440,8 @@ pub(crate) async fn shown<C: ConnectionTrait>(
             row.try_get::<String>("", "status")?,
             row.try_get::<Value>("", "node")?,
         ));
+        let named: Value = row.try_get("", "aliases")?;
+        aliases.push(serde_json::from_value::<Vec<String>>(named).unwrap_or_default());
     }
     // Every version of what stands or ended on these heads, in one read:
     // what each ever rested on, and of an ended one the words it stood in,
@@ -484,7 +491,8 @@ pub(crate) async fn shown<C: ConnectionTrait>(
     let provenance = HashMap::new();
     let nodes = heads
         .into_iter()
-        .map(|(id, kind, name, status, head)| {
+        .zip(aliases)
+        .map(|((id, kind, name, status, head), aliases)| {
             let gone = !known::is_live(&status);
             let (facts, heard) = if gone {
                 (Vec::new(), Vec::new())
@@ -503,6 +511,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
                 id,
                 kind,
                 name,
+                aliases,
                 gone,
                 head,
                 facts,
