@@ -127,8 +127,10 @@ pub(super) fn report(
         {
             continue;
         }
-        let right_of =
-            |outcome: &Outcome| answered(outcome).is_some_and(|a| a.correct == Some(true));
+        // A run made void is wrong, however it was graded: never right.
+        let right_of = |outcome: &Outcome| {
+            !outcome.void() && answered(outcome).is_some_and(|a| a.correct == Some(true))
+        };
         let mut by_kind: BTreeMap<String, [usize; 9]> = BTreeMap::new();
         let mut per_round = vec![0usize; times];
         let (mut right, mut every) = (0, 0);
@@ -252,12 +254,19 @@ pub(super) fn report(
                 .filter(|outcome| pick(outcome) == Some(true))
                 .count()
         };
+        // Right only where the run was not made void.
+        let right = |pick: fn(&Outcome) -> Option<bool>| {
+            noise
+                .iter()
+                .filter(|outcome| !outcome.void() && pick(outcome) == Some(true))
+                .count()
+        };
         scores.insert(
             "noise".into(),
             json!({
                 "runs": noise.len(),
-                "rightWithMemories": count(|outcome| outcome.wide.correct),
-                "rightWithout": count(|outcome| outcome.bare.as_ref().and_then(|bare| bare.correct)),
+                "rightWithMemories": right(|outcome| outcome.wide.correct),
+                "rightWithout": right(|outcome| outcome.bare.as_ref().and_then(|bare| bare.correct)),
                 "draggedWithMemories": count(|outcome| outcome.wide.dragged),
                 "draggedWithout": count(|outcome| outcome.bare.as_ref().and_then(|bare| bare.dragged)),
             }),
@@ -385,7 +394,8 @@ pub(super) fn partial_row(
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,
             "recalledChars": recalled_chars(&outcome.wide),
-            "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing},
+            "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing,
+            "prompt": outcome.wide.prompt},
         "gated": {"correct": outcome.gated.correct, "retrieved": outcome.gated.retrieved,
             "recalledChars": recalled_chars(&outcome.gated)},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
@@ -443,6 +453,7 @@ mod tests {
             through: None,
             scrolled: None,
             standing: Vec::new(),
+            prompt: None,
         }
     }
 
@@ -625,5 +636,66 @@ mod tests {
         .await;
         assert!(kept.is_some());
         assert_eq!(outcome, CuesTry::Cues);
+    }
+
+    /// A run made void (a model call failed, a timeout too; an embedding
+    /// running past the two seconds recall waits is not one) is wrong in
+    /// every count, however the judge graded it: never right. Its row
+    /// keeps both how it was graded and that it was void.
+    #[test]
+    fn a_void_run_is_never_counted_right() {
+        let mut timed_out = sample_outcome(None);
+        timed_out.failed = vec!["her-model: timeout".to_string()];
+        assert!(timed_out.void());
+        let mut slow_embedding = sample_outcome(None);
+        slow_embedding.failed = vec!["embed-model: timeout".to_string()];
+        assert!(!slow_embedding.void());
+        let q1 = sample_question("q1", "我喝什么");
+        let q2 = sample_question("q2", "我喝什么");
+        let rep = report(
+            &[q1.clone(), q2.clone()],
+            1,
+            &[(q1, 0, slow_embedding), (q2, 0, timed_out)],
+        );
+        assert_eq!(rep["voided"], 1);
+        for arm in ["wide", "gated"] {
+            let scores = &rep["scores"][arm];
+            assert_eq!(scores["accuracy"], 0.5, "{arm}");
+            assert_eq!(scores["perRound"], json!([1]), "{arm}");
+            assert_eq!(scores["pass^1"], 1, "{arm}");
+            assert_eq!(scores["byKind"]["single-session-user"]["right"], 1, "{arm}");
+            assert_eq!(scores["byKind"]["single-session-user"]["every"], 1, "{arm}");
+        }
+        assert_eq!(rep["rows"][1]["wide"]["correct"], true);
+        assert_eq!(rep["rows"][1]["void"], true);
+    }
+
+    /// The same for a pair, right only when both sides are, and for what
+    /// the noise questions count right.
+    #[test]
+    fn a_void_side_of_a_pair_or_noise_run_is_never_right() {
+        let noise = |id: &str| Question {
+            question_type: "noise".to_string(),
+            pair: Some("p".to_string()),
+            ..sample_question(id, "今晚吃什么")
+        };
+        let right_both_ways = |failed: &[&str]| Outcome {
+            bare: Some(sample_answered(true, &[])),
+            failed: failed.iter().map(|failed| failed.to_string()).collect(),
+            ..sample_outcome(None)
+        };
+        let bare_right = right_both_ways(&[]);
+        let timed_out = right_both_ways(&["her-model: timeout"]);
+        let (q1, q2) = (noise("n1"), noise("n2"));
+        let rep = report(
+            &[q1.clone(), q2.clone()],
+            1,
+            &[(q1, 0, bare_right), (q2, 0, timed_out)],
+        );
+        assert_eq!(rep["scores"]["wide"]["pairs"]["right"], "0/1");
+        assert_eq!(rep["scores"]["wide"]["pairs"]["pass^1"], 0);
+        assert_eq!(rep["scores"]["noise"]["runs"], 2);
+        assert_eq!(rep["scores"]["noise"]["rightWithMemories"], 1);
+        assert_eq!(rep["scores"]["noise"]["rightWithout"], 1);
     }
 }

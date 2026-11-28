@@ -124,13 +124,6 @@ async fn wrong_answers_are_attributed() {
         .lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect();
-    let right_elsewhere = |row: &Value| {
-        rows.iter().any(|other| {
-            other["arm"] == row["arm"]
-                && other["id"] == row["id"]
-                && other["wide"]["correct"] == true
-        })
-    };
     let (judge, lite) = super::longmemeval::the_models().await;
     let mut out = std::fs::File::create(format!("{path}.attributed.jsonl")).unwrap();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
@@ -167,7 +160,7 @@ async fn wrong_answers_are_attributed() {
             true => None,
             false => right_with(&judge, &lite, question, &answering).await,
         };
-        let unstable = right_elsewhere(row);
+        let unstable = right_elsewhere(&rows, row);
         let verdict = verdict(words, kept, in_front(row));
         *counts.entry(verdict).or_default() += 1;
         println!(
@@ -187,6 +180,28 @@ async fn wrong_answers_are_attributed() {
         );
     }
     println!("attributed: {counts:?}");
+}
+
+/// Whether another round of `row`'s way got its question right: one made
+/// void is never right, however it was graded.
+fn right_elsewhere(rows: &[Value], row: &Value) -> bool {
+    rows.iter().any(|other| {
+        other["arm"] == row["arm"]
+            && other["id"] == row["id"]
+            && other["void"] != true
+            && other["wide"]["correct"] == true
+    })
+}
+
+#[test]
+fn a_round_made_void_is_never_the_one_right_elsewhere() {
+    let row = |round: u64, void: bool, correct: bool| {
+        json!({"arm": "settle", "id": "q", "round": round, "void": void,
+            "wide": {"correct": correct}})
+    };
+    let wrong = row(0, false, false);
+    assert!(!right_elsewhere(&[wrong.clone(), row(1, true, true)], &wrong));
+    assert!(right_elsewhere(&[wrong.clone(), row(1, false, true)], &wrong));
 }
 
 #[test]

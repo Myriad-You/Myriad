@@ -16,9 +16,8 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
-    let (recalled, listed, _, _) =
-        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
-    (recalled, listed)
+    let recall = recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    (recall.recalled(), recall.listed)
 }
 
 /// Of what recall ranked, how many lines something they said found (by
@@ -44,9 +43,10 @@ impl Found {
     }
 }
 
-/// [`recalled_for`], with how their life stands as production shows it
-/// every time in a private talk (`Recollection::resident`): not recalled;
-/// and how much of what recall ranked something they said found.
+/// [`recalled_for`], each kind of thing apart as production lays it out,
+/// with how their life stands as production shows it every time in a
+/// private talk (`Recollection::resident`): not recalled; and how much of
+/// what recall ranked something they said found.
 async fn recalled_and_resident(
     db: &sea_orm::DatabaseConnection,
     question: &Question,
@@ -54,7 +54,7 @@ async fn recalled_and_resident(
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
-) -> (Vec<String>, Option<String>, Vec<String>, Found) {
+) -> super::aligned::Recall {
     // The control that only recalls more, when asked for.
     let wider = wider();
     let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
@@ -89,21 +89,29 @@ async fn recalled_and_resident(
                     now,
                     wider,
                 );
-                let mut lines: Vec<String> = recollection
-                    .named
-                    .into_iter()
-                    .chain(recollection.heard)
-                    .chain(recalled.brought_to_mind.iter().cloned())
-                    .collect();
+                let mut recall = super::aligned::Recall {
+                    ongoing: nodes.ongoing_section(&recollection.picked),
+                    named: recollection.named,
+                    heard: recollection.heard,
+                    brought_to_mind: recalled.brought_to_mind.clone(),
+                    widened: Vec::new(),
+                    listed: recollection.listed,
+                    not_all_here: recollection.not_all_here,
+                    resident: recollection.resident,
+                    found,
+                };
+                let mut lines = recall.recalled();
+                let shown = lines.len();
                 widened(&mut lines, &recalled, cues, more, thorough_more);
-                return (lines, recollection.listed, recollection.resident, found);
+                recall.widened = lines.split_off(shown);
+                return recall;
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
         }
         return Default::default();
     }
-    let named = remembering::recall_with(
+    remembering::recall_with(
         db,
         user_id,
         present,
@@ -123,16 +131,14 @@ async fn recalled_and_resident(
         } else {
             recalled.named
         };
-        (
-            named
-                .into_iter()
-                .chain(recalled.brought_to_mind)
-                .collect::<Vec<_>>(),
+        super::aligned::Recall {
+            named,
+            brought_to_mind: recalled.brought_to_mind,
             found,
-        )
+            ..Default::default()
+        }
     })
-    .unwrap_or_default();
-    (named.0, None, Vec::new(), named.1)
+    .unwrap_or_default()
 }
 
 /// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
@@ -155,42 +161,34 @@ fn standing_of(id: &str) -> Option<Vec<String>> {
         .cloned()
 }
 
-/// What she has in mind when she answers: the list of how things stand
-/// now, then what she recalled.
-fn with_standing(standing: &[String], recalled: &[String]) -> Vec<String> {
-    standing
-        .iter()
-        .map(|line| format!("现在: {line}"))
-        .chain(recalled.iter().cloned())
-        .collect()
-}
-
-#[test]
-fn how_things_stand_comes_first_and_is_not_recalled() {
-    let recalled = vec!["跑步: [07-03] 每周三和周五跑五公里".to_string()];
-    assert_eq!(
-        with_standing(&["膝盖坏了，夜跑停了".to_string()], &recalled),
-        [
-            "现在: 膝盖坏了，夜跑停了",
-            "跑步: [07-03] 每周三和周五跑五公里"
-        ]
-    );
-    assert_eq!(with_standing(&[], &recalled), recalled);
-}
-
 /// `MEROPE_MEMORY_BENCH_RECALL_ONLY=1`: recall each way and ask nothing,
 /// to see what a change to recall changes before paying for answers.
 fn recall_only() -> bool {
     std::env::var("MEROPE_MEMORY_BENCH_RECALL_ONLY").as_deref() == Ok("1")
 }
 
-/// What another run recalled and answered the wide way.
+/// What another run recalled and answered the wide way, and what she was
+/// asked then ([`asked_as`]).
 #[derive(Clone, Default)]
 struct Earlier {
     recalled: Vec<String>,
     correct: Option<bool>,
     why: Option<String>,
     answer: String,
+    prompt: String,
+}
+
+/// What she is asked, as a run's rows keep it: the SHA-256 of her answering
+/// prompt and the message, in hex.
+fn asked_as(system: &str, input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(format!("{system}\n\n{input}").as_bytes()))
+}
+
+/// Whether another run's answer is this one's: the same lines recalled,
+/// and asked of her the same way, word for word (`prompt`, [`asked_as`]).
+fn asked_the_same(earlier: &Earlier, recalled: &[String], prompt: &str) -> bool {
+    earlier.recalled == recalled && earlier.prompt == prompt
 }
 
 /// Of the run in `MEROPE_MEMORY_BENCH_ANSWERS_OF` (its `.partial.jsonl`),
@@ -235,6 +233,9 @@ fn answers_in(text: &str) -> HashMap<(String, usize), Earlier> {
                     correct: wide["correct"].as_bool(),
                     why: wide["why"].as_str().map(str::to_string),
                     answer: wide["response"].as_str()?.to_string(),
+                    // A run that does not say what she was asked (one from
+                    // before her prompt said it) is not answered again.
+                    prompt: wide["prompt"].as_str()?.to_string(),
                 },
             ))
         })
@@ -362,21 +363,6 @@ fn chars_of(id: &str, round: usize) -> Option<usize> {
     .copied()
 }
 
-/// `lines` kept whole, in order, while they fit in `most` characters.
-fn cut_to(lines: &mut Vec<String>, most: usize) {
-    let mut used = 0;
-    let mut kept = 0;
-    for line in lines.iter() {
-        let chars = line.chars().count();
-        if used + chars > most {
-            break;
-        }
-        used += chars;
-        kept += 1;
-    }
-    lines.truncate(kept);
-}
-
 #[derive(Clone)]
 pub(super) struct Answered {
     pub(super) retrieved: bool,
@@ -400,6 +386,9 @@ pub(super) struct Answered {
     /// How their life stands, as it was put in front of her before what she
     /// recalled (in a private talk): not recalled either.
     pub(super) standing: Vec<String>,
+    /// What she was asked ([`asked_as`]), when she was: another run takes
+    /// her answer only where it was asked the same.
+    pub(super) prompt: Option<String>,
 }
 
 impl Answered {
@@ -434,17 +423,18 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (mut recalled, listed, resident, recall_found) =
-        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
-    let standing = standing_of(&question.question_id).unwrap_or(resident);
+    let mut recall = recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    let standing = standing_of(&question.question_id)
+        .unwrap_or_else(|| std::mem::take(&mut recall.resident));
     // The way production answers is held to the length another run
     // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
     if back_when_thorough
         && wider() == 1
         && let Some(most) = chars_of(&question.question_id, round())
     {
-        cut_to(&mut recalled, most);
+        recall.cut_to(most);
     }
+    let (recalled, listed, recall_found) = (recall.recalled(), recall.listed.clone(), recall.found);
     let retrieved = answering.iter().any(|fact| {
         recalled.iter().any(|line| line.contains(fact.as_str()))
             || listed
@@ -454,6 +444,7 @@ pub(super) async fn answer_one(
     // Only recalling (`MEROPE_MEMORY_BENCH_RECALL_ONLY=1`): nothing asked.
     let unasked = |recalled: Vec<String>, earlier: Option<Earlier>| {
         let earlier = earlier.unwrap_or_default();
+        let prompt = Some(earlier.prompt).filter(|prompt| !prompt.is_empty());
         Answered {
             retrieved,
             correct: earlier.correct,
@@ -465,19 +456,11 @@ pub(super) async fn answer_one(
             through: None,
             scrolled: None,
             standing: standing.clone(),
+            prompt,
         }
     };
     if recall_only() {
         return unasked(recalled, None);
-    }
-    // The wide way recalling just what another run did, on the same kept
-    // copy, is answered as it answered (`MEROPE_MEMORY_BENCH_ANSWERS_OF`).
-    if back_when_thorough
-        && wider() == 1
-        && let Some(earlier) = answered_before(&question.question_id, round())
-        && earlier.recalled == recalled
-    {
-        return unasked(recalled, Some(earlier));
     }
     // Asked about what was said in detail, she scrolls back, as in a chat;
     // the wide way also when their words plainly reach back, as production
@@ -520,28 +503,39 @@ pub(super) async fn answer_one(
     let scrolled = myriad_merope::remembering::looked_back_section(&found);
     // Needing all of it, she goes through it as production has her do.
     // From her nodes, the list code made stands for it, as production shows.
-    let going_through = cues
-        .filter(|cues| cues.thorough && !recalled.is_empty())
-        .map(|_| match &listed {
-            Some(list) => list.clone(),
-            None => myriad_merope::speaking::format_going_through_all_section(),
-        });
+    let going_through = recall.going_through(cues);
+    // All of it in her prompt, each in its own section and in production's
+    // order: what she scrolled back to and what she goes through too.
+    let system = super::aligned::answer_system(
+        question,
+        present,
+        &recall,
+        &standing,
+        going_through.as_deref(),
+        scrolled.as_deref(),
+    );
     let input = json!({
         "today": question.question_date,
-        "scrollingBack": scrolled,
-        "goingThroughAll": going_through,
         "question": question.question,
     })
     .to_string();
+    let prompt = asked_as(&system, &input);
+    // The wide way recalling just what another run did, on the same kept
+    // copy, and asked of her just as it was, is answered as it answered
+    // (`MEROPE_MEMORY_BENCH_ANSWERS_OF`).
+    if back_when_thorough
+        && wider() == 1
+        && let Some(earlier) = answered_before(&question.question_id, round())
+        && asked_the_same(&earlier, &recalled, &prompt)
+    {
+        return unasked(recalled, Some(earlier));
+    }
     // A reply the provider dropped is asked again, as production does; one
     // that never comes is unanswered, not wrong.
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(
-                &answer_system(question, present, &with_standing(&standing, &recalled)),
-                &input,
-            )
+            .analyze_with_system(&system, &input)
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();
@@ -561,6 +555,7 @@ pub(super) async fn answer_one(
             through: going_through,
             scrolled,
             standing,
+            prompt: Some(prompt),
         };
     }
     let mut graded = json!({"question": question.question, "correctAnswer": question.answer,
@@ -596,6 +591,7 @@ pub(super) async fn answer_one(
         through: going_through,
         scrolled,
         standing,
+        prompt: Some(prompt),
     }
 }
 
@@ -605,11 +601,12 @@ pub(super) async fn answer_one(
 fn only_what_was_answered_is_answered_again() {
     let rows = [
         json!({"id": "a", "round": 0, "void": false,
-            "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的"}}),
+            "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的",
+                "prompt": "p"}}),
         json!({"id": "b", "round": 0, "void": true,
-            "wide": {"recalled": ["y"], "correct": false, "response": "不"}}),
+            "wide": {"recalled": ["y"], "correct": false, "response": "不", "prompt": "p"}}),
         json!({"id": "c", "round": 0, "void": false,
-            "wide": {"recalled": ["z"], "correct": null, "response": "  "}}),
+            "wide": {"recalled": ["z"], "correct": null, "response": "  ", "prompt": "p"}}),
     ];
     let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
     let earlier = answers_in(&text);
@@ -617,4 +614,31 @@ fn only_what_was_answered_is_answered_again() {
     let a = &earlier[&("a".to_string(), 0)];
     assert_eq!(a.recalled, ["x"]);
     assert_eq!((a.correct, a.answer.as_str()), (Some(true), "是的"));
+}
+
+/// A run that does not say what she was asked (every run from before what
+/// she answers on was laid out in sections) is not answered again: the same
+/// lines recalled were not the same prompt.
+#[test]
+fn a_run_that_does_not_say_what_she_was_asked_is_not_answered_again() {
+    let row = json!({"id": "a", "round": 0, "void": false,
+        "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的"}});
+    assert!(answers_in(&format!("{row}\n")).is_empty());
+}
+
+/// Another run's answer is taken only for the same lines recalled and the
+/// same prompt, word for word.
+#[test]
+fn an_answer_is_taken_only_where_she_was_asked_the_same() {
+    let prompt = asked_as("system", "input");
+    assert_eq!(prompt, asked_as("system", "input"));
+    assert_ne!(prompt, asked_as("system\n\n## Going on now", "input"));
+    let earlier = Earlier {
+        recalled: vec!["x".to_string()],
+        prompt: prompt.clone(),
+        ..Default::default()
+    };
+    assert!(asked_the_same(&earlier, &["x".to_string()], &prompt));
+    assert!(!asked_the_same(&earlier, &["x".to_string()], &asked_as("other", "input")));
+    assert!(!asked_the_same(&earlier, &["y".to_string()], &prompt));
 }

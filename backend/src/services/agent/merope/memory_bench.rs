@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::memory::unified::{Audience, Priming};
 
+mod aligned;
 mod answering;
 mod apart;
 mod attribute;
@@ -363,9 +364,10 @@ struct Outcome {
 }
 
 impl Outcome {
-    /// A run the network cost: some call failed other than an embedding
-    /// running past the two seconds recall waits, which production meets
-    /// too. Not counted as wrong; run again.
+    /// A run the network cost: some call failed (a model's timeout too)
+    /// other than an embedding running past the two seconds recall waits,
+    /// which production meets too. Counted wrong in the report, never
+    /// right, however it was graded; to be run again.
     fn void(&self) -> bool {
         self.failed
             .iter()
