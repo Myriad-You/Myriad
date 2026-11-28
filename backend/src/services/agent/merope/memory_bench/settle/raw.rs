@@ -135,10 +135,12 @@ pub(in super::super) async fn session(
                     kept.written +=
                         updates.updates.len() + updates.said.len() + updates.put_onto.len();
                 }
-                super::super::super::memory_nodes::facts::settled(
-                    db, user_id, None, present, updates,
-                )
-                .await;
+                if !super::super::ablation::current().no_nodes {
+                    super::super::super::memory_nodes::facts::settled(
+                        db, user_id, None, present, updates,
+                    )
+                    .await;
+                }
             }
             start = end;
         }
@@ -201,7 +203,7 @@ async fn one_pass(
     over_at: chrono::DateTime<chrono::FixedOffset>,
 ) -> Option<settle_raw::Gone> {
     let mut placed = Vec::new();
-    if on_nodes(present) {
+    if on_nodes(present) && !super::super::ablation::current().no_nodes {
         let lines = whole_messages(pass);
         placed = super::super::super::memory_nodes::placing::place(db, user_id, None, &lines).await;
     }

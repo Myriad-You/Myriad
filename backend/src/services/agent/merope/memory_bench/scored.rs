@@ -345,8 +345,12 @@ pub(super) fn report(
             }),
         );
     }
-    json!({"times": times, "wider": wider(), "widerArm": wider_arm(), "scores": scores,
-        "voided": voided, "rows": rows})
+    let mut report = json!({"times": times, "wider": wider(), "widerArm": wider_arm(),
+        "scores": scores, "voided": voided, "rows": rows});
+    if let Some(ablation) = super::ablation::current().label() {
+        report["ablation"] = ablation;
+    }
+    report
 }
 
 /// How long what she answered on was: the lines recalled, in characters.
@@ -367,7 +371,7 @@ pub(super) fn partial_row(
     round: usize,
     outcome: &Outcome,
 ) -> Value {
-    json!({"arm": arm, "id": question.question_id, "type": question.question_type,
+    let mut row = json!({"arm": arm, "id": question.question_id, "type": question.question_type,
         "round": round, "void": outcome.void(), "written": outcome.written,
         "failed": outcome.failed,
         "answering": outcome.answering, "asked": outcome.asked,
@@ -393,7 +397,12 @@ pub(super) fn partial_row(
             "recalledChars": recalled_chars(wider)})),
         "raw": outcome.raw.as_ref().map(|raw| json!({"correct": raw.correct,
             "response": raw.answer, "why": raw.why, "scrolled": raw.scrolled,
-            "scrolledChars": raw.scrolled.as_ref().map_or(0, |scrolled| scrolled.chars().count())}))})
+            "scrolledChars": raw.scrolled.as_ref().map_or(0, |scrolled| scrolled.chars().count())}))
+    });
+    if let Some(ablation) = super::ablation::current().label() {
+        row["ablation"] = ablation;
+    }
+    row
 }
 
 /// `row` added to `{report}.partial.jsonl` as soon as it is done.
@@ -625,5 +634,274 @@ mod tests {
         .await;
         assert!(kept.is_some());
         assert_eq!(outcome, CuesTry::Cues);
+    }
+    /// A run of every kind the report tells apart: one with every arm and
+    /// a fact it needs, one wrong in a pair and a category, a noise
+    /// question asked bare too, and a slow embedding (not void).
+    fn golden_runs() -> (Vec<Question>, Vec<(Question, usize, Outcome)>) {
+        let mut q1 = sample_question("q1", "我上次去成都是什么时候");
+        q1.needs = vec![vec!["成都".to_string()]];
+        let q2 = Question {
+            pair: Some("p".to_string()),
+            category: Some("implied".to_string()),
+            ..sample_question("q2", "我买过哪些植物")
+        };
+        let q3 = Question {
+            question_type: "noise".to_string(),
+            memories: vec!["养了一只猫".to_string()],
+            ..sample_question("q3", "今晚吃什么")
+        };
+        let o1 = Outcome {
+            plain: Some(sample_answered(false, &["工作: 在成都做后端"])),
+            cued: Some(sample_answered(true, &["旅行: [2026-10-01] 去了成都"])),
+            wide: sample_answered(true, &["旅行: [2026-10-01] 去了成都"]),
+            wider: Some(sample_answered(true, &["旅行: [2026-10-01] 去了成都", "x"])),
+            answering: vec!["去了成都".to_string()],
+            memories: vec!["去了成都".to_string()],
+            concepts: vec![json!(["旅行"])],
+            nodes: vec![Some("旅行".to_string())],
+            kept: 1,
+            need_ranks: vec![(Some(1), Some(1))],
+            asked: Some("{\"cues\":[\"成都\"]}".to_string()),
+            ..sample_outcome(Some(CuesTry::Cues))
+        };
+        let o2 = Outcome {
+            wide: sample_answered(false, &[]),
+            gated: sample_answered(false, &[]),
+            failed: vec!["embed-model: timeout".to_string()],
+            ..sample_outcome(Some(CuesTry::Empty))
+        };
+        let mut bare = sample_answered(true, &[]);
+        bare.dragged = Some(false);
+        let o3 = Outcome {
+            bare: Some(bare),
+            in_private: Some(true),
+            reaches_back: true,
+            ..sample_outcome(None)
+        };
+        let questions = vec![q1.clone(), q2.clone(), q3.clone()];
+        (questions, vec![(q1, 0, o1), (q2, 0, o2), (q3, 0, o3)])
+    }
+
+    /// What the bench reported for [`golden_runs`] before it had ablation
+    /// switches (taken from c3f28aa20): the report, and each partial row.
+    const REPORTED: &str = "\
+        {\"rows\":[{\"answer\":\"answer\",\"bare\":null,\
+        \"category\":null,\"concepts\":[[\"旅行\"]],\
+        \"cued\":{\"correct\":true,\"cues\":null,\
+        \"dragged\":null,\"recalled\":[\"旅行: [2026-10-01] 去了成都\"],\
+        \"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"failed\":[],\"gated\":{\"correct\":true,\
+        \"cues\":null,\"dragged\":null,\"recalled\":[],\
+        \"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"id\":\"q1\",\"inPrivate\":null,\
+        \"kept\":1,\"memories\":[\"去了成都\"],\"nodes\":[\"旅行\"],\
+        \"pair\":null,\"plain\":{\"correct\":false,\
+        \"cues\":null,\"dragged\":null,\"recalled\":[\"工作: 在成都做后端\"],\
+        \"response\":\"no\",\"retrieved\":false,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"question\":\"我上次去成都是什么时候\",\
+        \"reachesBack\":false,\"read\":null,\"round\":0,\
+        \"type\":\"single-session-user\",\"void\":false,\
+        \"wide\":{\"correct\":true,\"cues\":null,\
+        \"dragged\":null,\"recalled\":[\"旅行: [2026-10-01] 去了成都\"],\
+        \"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"wider\":{\"correct\":true,\
+        \"cues\":null,\"dragged\":null,\"recalled\":[\"旅行: [2026-10-01] 去了成都\",\
+        \"x\"],\"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"written\":true},{\"answer\":\"answer\",\
+        \"bare\":null,\"category\":\"implied\",\"concepts\":[],\
+        \"cued\":null,\"failed\":[\"embed-model: timeout\"],\
+        \"gated\":{\"correct\":false,\"cues\":null,\
+        \"dragged\":null,\"recalled\":[],\"response\":\"no\",\
+        \"retrieved\":false,\"scrolled\":null,\"standing\":[],\
+        \"through\":null,\"why\":null},\"id\":\"q2\",\
+        \"inPrivate\":null,\"kept\":0,\"memories\":[],\
+        \"nodes\":[],\"pair\":\"p\",\"plain\":null,\
+        \"question\":\"我买过哪些植物\",\"reachesBack\":false,\
+        \"read\":null,\"round\":0,\"type\":\"single-session-user\",\
+        \"void\":false,\"wide\":{\"correct\":false,\
+        \"cues\":null,\"dragged\":null,\"recalled\":[],\
+        \"response\":\"no\",\"retrieved\":false,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"wider\":null,\"written\":true},\
+        {\"answer\":\"answer\",\"bare\":{\"correct\":true,\
+        \"cues\":null,\"dragged\":false,\"recalled\":[],\
+        \"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"category\":null,\"concepts\":[],\
+        \"cued\":null,\"failed\":[],\"gated\":{\"correct\":true,\
+        \"cues\":null,\"dragged\":null,\"recalled\":[],\
+        \"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"id\":\"q3\",\"inPrivate\":true,\
+        \"kept\":0,\"memories\":[],\"nodes\":[],\
+        \"pair\":null,\"plain\":null,\"question\":\"今晚吃什么\",\
+        \"reachesBack\":true,\"read\":null,\"round\":0,\
+        \"type\":\"noise\",\"void\":false,\"wide\":{\"correct\":true,\
+        \"cues\":null,\"dragged\":null,\"recalled\":[],\
+        \"response\":\"yes\",\"retrieved\":true,\
+        \"scrolled\":null,\"standing\":[],\"through\":null,\
+        \"why\":null},\"wider\":null,\"written\":true}],\
+        \"scores\":{\"cued\":{\"accuracy\":0.3333333333333333,\
+        \"byKind\":{\"noise\":{\"every\":0,\"needing\":0,\
+        \"questions\":1,\"recalledNeeded\":0,\"retrievedAny\":0,\
+        \"right\":0,\"runs\":1,\"shownNeeded\":0,\
+        \"writtenAny\":1},\"single-session-user\":{\"every\":1,\
+        \"needing\":1,\"questions\":1,\"recalledNeeded\":1,\
+        \"retrievedAny\":1,\"right\":1,\"runs\":1,\
+        \"shownNeeded\":1,\"writtenAny\":1},\"single-session-user/implied\":{\"every\":0,\
+        \"needing\":0,\"questions\":1,\"recalledNeeded\":0,\
+        \"retrievedAny\":0,\"right\":0,\"runs\":1,\
+        \"shownNeeded\":0,\"writtenAny\":1}},\"pairs\":{\"pairs\":1,\
+        \"pass^1\":0,\"right\":\"0/1\"},\"pass^1\":1,\
+        \"perRound\":[1],\"questions\":3,\"recalledChars\":21.0,\
+        \"recalledLines\":1.0},\"cuesTries\":{\"cues\":1,\
+        \"empty\":1,\"firstAttemptFailedRate\":0.0,\
+        \"total\":2,\"unanswered\":0,\"unreadable\":0},\
+        \"gated\":{\"accuracy\":0.6666666666666666,\
+        \"byKind\":{\"noise\":{\"every\":1,\"needing\":0,\
+        \"questions\":1,\"recalledNeeded\":0,\"retrievedAny\":1,\
+        \"right\":1,\"runs\":1,\"shownNeeded\":0,\
+        \"writtenAny\":1},\"single-session-user\":{\"every\":1,\
+        \"needing\":1,\"questions\":1,\"recalledNeeded\":0,\
+        \"retrievedAny\":1,\"right\":1,\"runs\":1,\
+        \"shownNeeded\":0,\"writtenAny\":1},\"single-session-user/implied\":{\"every\":0,\
+        \"needing\":0,\"questions\":1,\"recalledNeeded\":0,\
+        \"retrievedAny\":0,\"right\":0,\"runs\":1,\
+        \"shownNeeded\":0,\"writtenAny\":1}},\"pairs\":{\"pairs\":1,\
+        \"pass^1\":0,\"right\":\"0/1\"},\"pass^1\":2,\
+        \"perRound\":[2],\"questions\":3,\"recalledChars\":0.0,\
+        \"recalledLines\":0.0},\"noise\":{\"draggedWithMemories\":0,\
+        \"draggedWithout\":0,\"rightWithMemories\":1,\
+        \"rightWithout\":1,\"runs\":1},\"plain\":{\"accuracy\":0.0,\
+        \"byKind\":{\"noise\":{\"every\":0,\"needing\":0,\
+        \"questions\":1,\"recalledNeeded\":0,\"retrievedAny\":0,\
+        \"right\":0,\"runs\":1,\"shownNeeded\":0,\
+        \"writtenAny\":1},\"single-session-user\":{\"every\":0,\
+        \"needing\":1,\"questions\":1,\"recalledNeeded\":1,\
+        \"retrievedAny\":0,\"right\":0,\"runs\":1,\
+        \"shownNeeded\":1,\"writtenAny\":1},\"single-session-user/implied\":{\"every\":0,\
+        \"needing\":0,\"questions\":1,\"recalledNeeded\":0,\
+        \"retrievedAny\":0,\"right\":0,\"runs\":1,\
+        \"shownNeeded\":0,\"writtenAny\":1}},\"pairs\":{\"pairs\":1,\
+        \"pass^1\":0,\"right\":\"0/1\"},\"pass^1\":0,\
+        \"perRound\":[0],\"questions\":3,\"recalledChars\":10.0,\
+        \"recalledLines\":1.0},\"privateFoundInPrivate\":\"1/1\",\
+        \"reachesBack\":{\"matched\":1,\"rate\":0.3333333333333333,\
+        \"total\":3},\"wide\":{\"accuracy\":0.6666666666666666,\
+        \"byKind\":{\"noise\":{\"every\":1,\"needing\":0,\
+        \"questions\":1,\"recalledNeeded\":0,\"retrievedAny\":1,\
+        \"right\":1,\"runs\":1,\"shownNeeded\":0,\
+        \"writtenAny\":1},\"single-session-user\":{\"every\":1,\
+        \"needing\":1,\"questions\":1,\"recalledNeeded\":1,\
+        \"retrievedAny\":1,\"right\":1,\"runs\":1,\
+        \"shownNeeded\":1,\"writtenAny\":1},\"single-session-user/implied\":{\"every\":0,\
+        \"needing\":0,\"questions\":1,\"recalledNeeded\":0,\
+        \"retrievedAny\":0,\"right\":0,\"runs\":1,\
+        \"shownNeeded\":0,\"writtenAny\":1}},\"pairs\":{\"pairs\":1,\
+        \"pass^1\":0,\"right\":\"0/1\"},\"pass^1\":2,\
+        \"perRound\":[2],\"questions\":3,\"recalledChars\":7.0,\
+        \"recalledLines\":0.3333333333333333},\"wider\":{\"accuracy\":0.3333333333333333,\
+        \"byKind\":{\"noise\":{\"every\":0,\"needing\":0,\
+        \"questions\":1,\"recalledNeeded\":0,\"retrievedAny\":0,\
+        \"right\":0,\"runs\":1,\"shownNeeded\":0,\
+        \"writtenAny\":1},\"single-session-user\":{\"every\":1,\
+        \"needing\":1,\"questions\":1,\"recalledNeeded\":1,\
+        \"retrievedAny\":1,\"right\":1,\"runs\":1,\
+        \"shownNeeded\":1,\"writtenAny\":1},\"single-session-user/implied\":{\"every\":0,\
+        \"needing\":0,\"questions\":1,\"recalledNeeded\":0,\
+        \"retrievedAny\":0,\"right\":0,\"runs\":1,\
+        \"shownNeeded\":0,\"writtenAny\":1}},\"pairs\":{\"pairs\":1,\
+        \"pass^1\":0,\"right\":\"0/1\"},\"pass^1\":1,\
+        \"perRound\":[1],\"questions\":3,\"recalledChars\":22.0,\
+        \"recalledLines\":2.0}},\"times\":1,\"voided\":0,\
+        \"wider\":1,\"widerArm\":null}";
+    const PARTIAL_ROWS: [&str; 3] = [
+        "\
+            {\"answering\":[\"去了成都\"],\"arm\":\"settle\",\
+            \"asked\":\"{\\\"cues\\\":[\\\"成都\\\"]}\",\
+            \"failed\":[],\"gated\":{\"correct\":true,\
+            \"recalledChars\":0,\"retrieved\":true},\
+            \"id\":\"q1\",\"needs\":[{\"any\":[\"成都\"],\
+            \"rank\":1,\"rankShallow\":1,\"shown\":true,\
+            \"wide\":true,\"wider\":true,\"written\":true}],\
+            \"raw\":null,\"reachesBack\":false,\"round\":0,\
+            \"type\":\"single-session-user\",\"void\":false,\
+            \"wide\":{\"correct\":true,\"recalled\":[\"旅行: [2026-10-01] 去了成都\"],\
+            \"recalledChars\":21,\"response\":\"yes\",\
+            \"retrieved\":true,\"scrolled\":null,\"standing\":[],\
+            \"why\":null},\"wider\":{\"correct\":true,\
+            \"recalled\":[\"旅行: [2026-10-01] 去了成都\",\
+            \"x\"],\"recalledChars\":22,\"retrieved\":true},\
+            \"written\":true}",
+        "\
+            {\"answering\":[],\"arm\":\"settle\",\"asked\":null,\
+            \"failed\":[\"embed-model: timeout\"],\"gated\":{\"correct\":false,\
+            \"recalledChars\":0,\"retrieved\":false},\
+            \"id\":\"q2\",\"needs\":[],\"raw\":null,\
+            \"reachesBack\":false,\"round\":0,\"type\":\"single-session-user\",\
+            \"void\":false,\"wide\":{\"correct\":false,\
+            \"recalled\":[],\"recalledChars\":0,\"response\":\"no\",\
+            \"retrieved\":false,\"scrolled\":null,\"standing\":[],\
+            \"why\":null},\"wider\":null,\"written\":true}",
+        "\
+            {\"answering\":[],\"arm\":\"settle\",\"asked\":null,\
+            \"failed\":[],\"gated\":{\"correct\":true,\
+            \"recalledChars\":0,\"retrieved\":true},\
+            \"id\":\"q3\",\"needs\":[],\"raw\":null,\
+            \"reachesBack\":true,\"round\":0,\"type\":\"noise\",\
+            \"void\":false,\"wide\":{\"correct\":true,\
+            \"recalled\":[],\"recalledChars\":0,\"response\":\"yes\",\
+            \"retrieved\":true,\"scrolled\":null,\"standing\":[],\
+            \"why\":null},\"wider\":null,\"written\":true}",
+    ];
+
+    /// What [`golden_runs`] report as, with `set` as this run's ablation.
+    async fn reported_with(set: super::super::ablation::Ablation) -> (String, Vec<String>) {
+        let (questions, runs) = golden_runs();
+        super::super::ablation::with(set, async {
+            let rows = runs
+                .iter()
+                .map(|(question, round, outcome)| {
+                    partial_row("settle", question, *round, outcome).to_string()
+                })
+                .collect();
+            (report(&questions, 1, &runs).to_string(), rows)
+        })
+        .await
+    }
+
+    /// With every layer in, the bench reports byte for byte what it did
+    /// before it had the switches; with one taken out, the same beside
+    /// which it was.
+    #[tokio::test]
+    async fn with_every_layer_in_the_report_is_what_it_always_was() {
+        let (report, rows) = reported_with(Default::default()).await;
+        assert_eq!(report, REPORTED);
+        assert_eq!(rows, PARTIAL_ROWS);
+        let nodes = super::super::ablation::Ablation {
+            no_nodes: true,
+            ..Default::default()
+        };
+        let (report, rows) = reported_with(nodes).await;
+        let without = |text: &str| {
+            let mut value: Value = serde_json::from_str(text).unwrap();
+            let said = value.as_object_mut().unwrap().remove("ablation");
+            assert_eq!(
+                said,
+                Some(json!({"noNodes": true, "noNightly": false, "noStanding": false}))
+            );
+            value.to_string()
+        };
+        assert_eq!(without(&report), REPORTED);
+        assert_eq!(rows.len(), PARTIAL_ROWS.len());
+        for (row, before) in rows.iter().zip(PARTIAL_ROWS) {
+            assert_eq!(without(row), before);
+        }
     }
 }

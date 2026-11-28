@@ -76,6 +76,7 @@ async fn recalled_and_resident(
         )
         .await;
         let nodes = super::super::memory_nodes::context::load(db, user_id, now).await;
+        let nodes = nodes.map(|nodes| super::ablation::current().read(nodes));
         match (ranked, nodes) {
             (Ok((recalled, _)), Ok(nodes)) => {
                 let found = Found::of(&recalled);
@@ -436,7 +437,9 @@ pub(super) async fn answer_one(
 ) -> Answered {
     let (mut recalled, listed, resident, recall_found) =
         recalled_and_resident(db, question, user_id, present, cues, thorough).await;
-    let standing = standing_of(&question.question_id).unwrap_or(resident);
+    let standing = standing_of(&question.question_id)
+        .filter(|_| !super::ablation::current().no_standing)
+        .unwrap_or(resident);
     // The way production answers is held to the length another run
     // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
     if back_when_thorough

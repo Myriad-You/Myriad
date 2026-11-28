@@ -198,7 +198,7 @@ async fn settle_pass(
     // In a private talk the stretch is cut onto her nodes first and her
     // nodes are what she puts it on, as production goes over it.
     let mut offered = Vec::new();
-    if on_nodes(present) {
+    if on_nodes(present) && !super::ablation::current().no_nodes {
         use super::super::memory_nodes::placing::{self, Line};
         let lines: Vec<Line> = turns
             .iter()
@@ -374,7 +374,9 @@ async fn settle_pass(
     }
     if !updates.updates.is_empty() {
         super::writing::settle_at(db, user_id, present, at, &updates, &from_rows).await;
-        super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
+        if !super::ablation::current().no_nodes {
+            super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
+        }
     }
     Some((lasting, passed_over, settled))
 }
@@ -417,12 +419,19 @@ pub(super) fn on_nodes(present: &Audience) -> bool {
 }
 
 /// Once all is written, what production's upkeep does to her nodes: what
-/// going over placed nowhere sorted onto them, and those due gone over.
+/// going over placed nowhere sorted onto them, and those due gone over (at
+/// night, in production). Neither without her nodes
+/// (`MEROPE_MEMORY_BENCH_NO_NODES`); not the night's
+/// (`MEROPE_MEMORY_BENCH_NO_NIGHTLY`).
 pub(super) async fn keep_up_nodes(db: &sea_orm::DatabaseConnection, user_id: i32) {
-    if !on_nodes(&Audience::private(user_id)) {
+    let ablation = super::ablation::current();
+    if !on_nodes(&Audience::private(user_id)) || ablation.no_nodes {
         return;
     }
     super::super::memory_nodes::sorting::sort_for(db, user_id, None, NODE_SORTS).await;
+    if ablation.no_nightly {
+        return;
+    }
     let Some(pen) = crate::services::her_log::pen::think() else {
         return;
     };

@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::memory::unified::{Audience, Priming};
 
+mod ablation;
 mod answering;
 mod apart;
 mod attribute;
