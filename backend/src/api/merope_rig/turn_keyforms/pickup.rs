@@ -63,6 +63,21 @@ impl Asked {
         }
     }
 
+    /// A figure's keys as asked: its head's, its body's.
+    pub(super) fn figure_keys(&self) -> FigureKeys {
+        FigureKeys {
+            head: self.head,
+            body: self.body,
+        }
+    }
+
+    /// The kept job used again, and whether it is fitted again.
+    pub(super) fn kept_job(&self) -> Option<(&str, bool)> {
+        self.from_archive
+            .as_ref()
+            .map(|kept| (kept.id.as_str(), kept.refit))
+    }
+
     /// A kept job used again, fitted anew or as it was.
     pub(super) fn kept(archive_id: &str, refit: bool, beside: Beside) -> Self {
         Self {
@@ -133,7 +148,7 @@ pub(super) fn job_status(job: &JobRow) -> Value {
 }
 
 /// A finished job's two files: from this process, or from the archive its
-/// record names. None: neither has them.
+/// record names, in its owner's storage. None: neither has them.
 async fn result_of(job: &JobRow) -> Option<(Arc<Vec<u8>>, Arc<Vec<u8>>)> {
     if let Some(Some(files)) =
         live::with_job(&job.id, |live| live.psd.clone().zip(live.keyforms.clone()))
@@ -141,22 +156,28 @@ async fn result_of(job: &JobRow) -> Option<(Arc<Vec<u8>>, Arc<Vec<u8>>)> {
         return Some(files);
     }
     let archive_id = job.result_ref.as_deref().and_then(archive::of_result_ref)?;
-    let meta = archive::read_meta(archive_id).await?;
-    let (baked, keyforms) = archive::read_result(&meta).await.ok()?;
+    let storage = job.owner()?.storage();
+    let meta = archive::read_meta(&storage, archive_id).await?;
+    let (baked, keyforms) = archive::read_result(&storage, &meta).await.ok()?;
     Some((Arc::new(baked), Arc::new(keyforms)))
 }
 
 /// Whether a finished job's result can still be had: this process has it,
-/// or the archive its record names does.
+/// or the archive its record names does, in its owner's storage.
 async fn result_available(job: &JobRow) -> bool {
-    if live::with_job(&job.id, |live| live.psd.is_some() && live.keyforms.is_some())
-        .unwrap_or(false)
+    if live::with_job(&job.id, |live| {
+        live.psd.is_some() && live.keyforms.is_some()
+    })
+    .unwrap_or(false)
     {
         return true;
     }
-    match job.result_ref.as_deref().and_then(archive::of_result_ref) {
-        Some(archive_id) => archive::has_result(archive_id).await,
-        None => false,
+    match (
+        job.result_ref.as_deref().and_then(archive::of_result_ref),
+        job.owner(),
+    ) {
+        (Some(archive_id), Some(owner)) => archive::has_result(&owner.storage(), archive_id).await,
+        _ => false,
     }
 }
 

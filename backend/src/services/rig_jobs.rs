@@ -1,5 +1,6 @@
 //! Rig generation jobs as rows (`migrations/rig_jobs.sql`): what a job was
-//! asked for and by whom, where it stands, how it ended, where its result is
+//! asked for and by whom, whose it is (`Owner`) and what its steps run from,
+//! where it stands, how it ended, where its result is
 //! kept, every step it ran with its time and compute, the ledger id its paid
 //! calls are written under, and the callers' keys for their submissions.
 //!
@@ -34,6 +35,10 @@ use sea_orm::{
     TransactionTrait, Value as SeaValue,
 };
 use serde_json::Value;
+
+#[path = "rig_job_owner.rs"]
+mod owner;
+pub use owner::{Owner, Storage};
 
 /// How long a running job's lease lasts without being renewed.
 pub const LEASE: Duration = Duration::from_secs(45);
@@ -149,15 +154,18 @@ impl State {
 pub struct NewJob {
     pub id: String,
     pub kind: String,
-    /// `user:<id>`.
-    pub caller: String,
-    pub owner_user_id: Option<i32>,
+    /// Whose it is: its caller (`Owner::caller`), and whose storage its
+    /// results are kept in.
+    pub owner: Owner,
     pub idempotency_key: Option<String>,
     /// SHA-256 hex of what was asked (`digest`).
     pub request_digest: String,
     /// A running job of the same subject is joined instead of started again.
     pub subject: Option<String>,
+    /// What was asked, in the caller's terms (`request_digest` is of it).
     pub input: Value,
+    /// What the job's steps run from: its picture and what is made of it.
+    pub pipeline_input: Value,
     pub progress: Value,
     pub ledger_task_id: String,
     /// The process that will run it.
@@ -280,8 +288,9 @@ pub(crate) async fn claim_unless(
     lock_claims(&txn).await?;
     fail_interrupted(&txn).await?;
     tidy(&txn).await?;
+    let caller = job.owner.caller();
     if let Some(key) = &job.idempotency_key
-        && let Some(keyed) = by_key(&txn, &job.caller, key).await?
+        && let Some(keyed) = by_key(&txn, &caller, key).await?
     {
         if keyed.holds() {
             if keyed.request_digest != job.request_digest {
@@ -294,7 +303,7 @@ pub(crate) async fn claim_unless(
         txn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "DELETE FROM rig_job_keys WHERE caller = $1 AND idempotency_key = $2",
-            [job.caller.clone().into(), key.clone().into()],
+            [caller.clone().into(), key.clone().into()],
         ))
         .await?;
     }
@@ -304,7 +313,7 @@ pub(crate) async fn claim_unless(
                 DbBackend::Postgres,
                 "SELECT id FROM rig_jobs WHERE caller = $1 AND subject = $2 \
                  AND state IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1",
-                [job.caller.clone().into(), subject.clone().into()],
+                [caller.clone().into(), subject.clone().into()],
             ))
             .await?;
         if let Some(row) = joined {
@@ -328,16 +337,19 @@ pub(crate) async fn claim_unless(
     }
     txn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "INSERT INTO rig_jobs (id, kind, caller, owner_user_id, subject, input, state, progress, \
-         attempts, ledger_task_id, runner, heartbeat_at, started_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, 'running', $7, 1, $8, $9, NOW(), NOW())",
+        "INSERT INTO rig_jobs (id, kind, caller, owner_user_id, owner_scope, subject, input, \
+         pipeline_input, state, progress, attempts, ledger_task_id, runner, heartbeat_at, \
+         started_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running', $9, 1, $10, $11, NOW(), NOW())",
         [
             job.id.clone().into(),
             job.kind.clone().into(),
-            job.caller.clone().into(),
-            job.owner_user_id.into(),
+            caller.into(),
+            job.owner.user_id().into(),
+            job.owner.scope().into(),
             job.subject.clone().into(),
             job.input.clone().into(),
+            job.pipeline_input.clone().into(),
             job.progress.clone().into(),
             job.ledger_task_id.clone().into(),
             job.runner.clone().into(),
@@ -421,7 +433,7 @@ async fn keep_key(db: &impl ConnectionTrait, job: &NewJob, job_id: &str) -> Resu
         "INSERT INTO rig_job_keys (caller, idempotency_key, job_id, request_digest) \
          VALUES ($1, $2, $3, $4)",
         [
-            job.caller.clone().into(),
+            job.owner.caller().into(),
             key.clone().into(),
             job_id.into(),
             job.request_digest.clone().into(),
@@ -592,7 +604,11 @@ pub struct JobRow {
     pub kind: String,
     pub caller: String,
     pub owner_user_id: Option<i32>,
+    /// `site` for the site's own jobs (`Owner::scope`).
+    pub owner_scope: String,
     pub input: Value,
+    /// What its steps run from; a row without one is not run from its record.
+    pub pipeline_input: Option<Value>,
     state: String,
     pub progress: Value,
     pub attempts: i32,
@@ -614,6 +630,11 @@ impl JobRow {
         State::parse(&self.state)
     }
 
+    /// Whose the job is, as its record names it (`Owner::of_record`).
+    pub fn owner(&self) -> Option<Owner> {
+        Owner::of_record(&self.owner_scope, self.owner_user_id)
+    }
+
     pub fn interrupted(&self) -> bool {
         self.state() == State::Failed && self.error_code.as_deref() == Some(INTERRUPTED)
     }
@@ -624,7 +645,7 @@ impl JobRow {
     }
 }
 
-const JOB_COLUMNS: &str = "id, kind, caller, owner_user_id, input, \
+const JOB_COLUMNS: &str = "id, kind, caller, owner_user_id, owner_scope, input, pipeline_input, \
     state, progress, attempts, error_code, error_message, error_detail, result_ref, \
     ledger_task_id, runner, cancel_requested_at, delivered, created_at, started_at, ended_at";
 

@@ -13,10 +13,18 @@ CREATE TABLE IF NOT EXISTS rig_jobs (
     caller VARCHAR(96) NOT NULL,
     -- The site account the job belongs to, when the caller is one.
     owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    -- Whose the job is, and so where what it makes is kept: `site` for the
+    -- site's own (`services::rig_jobs::Owner`).
+    owner_scope VARCHAR(96) NOT NULL DEFAULT 'site',
     -- What a running job of the same input is joined by instead of started again.
     subject VARCHAR(512),
-    -- What the job was asked to work from and how: references, never the bytes.
+    -- What the job was asked to work from and how, in the caller's terms:
+    -- references, never the bytes. `rig_job_keys.request_digest` is of it.
     input JSONB NOT NULL,
+    -- What the job's steps run from, in the pipeline's own terms: its picture
+    -- (a reference, never the bytes) and what is made of it. A row without
+    -- one is not run from its record.
+    pipeline_input JSONB,
     state VARCHAR(16) NOT NULL DEFAULT 'queued'
         CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
     -- Where the work stands, as the pipeline reports it.
@@ -42,6 +50,9 @@ CREATE TABLE IF NOT EXISTS rig_jobs (
     ended_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE rig_jobs ADD COLUMN IF NOT EXISTS owner_scope VARCHAR(96) NOT NULL DEFAULT 'site';
+ALTER TABLE rig_jobs ADD COLUMN IF NOT EXISTS pipeline_input JSONB;
 
 CREATE INDEX IF NOT EXISTS idx_rig_jobs_caller_created
     ON rig_jobs (caller, created_at);

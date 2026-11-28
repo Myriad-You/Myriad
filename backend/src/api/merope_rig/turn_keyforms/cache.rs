@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use sha2::{Digest, Sha256};
 
 use super::turn_prompts;
-use crate::services::{image_generation, see_through};
+use crate::services::{image_generation, rig_jobs::Storage, see_through};
 
 /// Bump when what a cached picture or decomposition means changes.
 const CACHE_VERSION: &str = "turn-keyforms-cache-v1";
@@ -19,14 +19,16 @@ pub(super) struct TurnCache {
 
 impl TurnCache {
     /// Keyed by everything that decides them: the master's pixels, how the
-    /// drawings are asked for, and where and how they are decomposed.
+    /// drawings are asked for, and where and how they are decomposed; kept
+    /// in the job's owner's storage.
     pub(super) fn for_master(
+        storage: &Storage,
         reference: &[u8],
         generation: &image_generation::ImageGenerationConfig,
         space: &str,
         options: see_through::DecomposeOptions,
     ) -> Self {
-        Self::in_root(cache_root(), reference, generation, space, options)
+        Self::in_root(cache_root(storage), reference, generation, space, options)
     }
 
     fn in_root(
@@ -103,10 +105,9 @@ impl TurnCache {
     }
 }
 
-pub(super) fn cache_root() -> PathBuf {
-    crate::services::data_paths::paths()
-        .root
-        .join("merope/turn-keyforms")
+/// Where an owner's cached drawings and decompositions are kept.
+pub(super) fn cache_root(storage: &Storage) -> PathBuf {
+    storage.root().join("turn-keyforms")
 }
 
 /// Keeps the masters touched last; a master in use is touched as it is read or written.
@@ -168,6 +169,30 @@ mod tests {
         assert!(!cache.dir.to_string_lossy().contains("secret"));
         let _ = std::fs::remove_dir_all(root);
     }
+
+    /// The site's cache is `merope/turn-keyforms` under the data directory,
+    /// keyed by `SITE_KEY` for this master, providers and Space.
+    #[test]
+    fn the_sites_cache_is_under_the_data_directory_by_its_key() {
+        let options = see_through::DecomposeOptions::default();
+        let cache = TurnCache::for_master(
+            &Storage::site(),
+            b"master",
+            &generation("m"),
+            "a/b",
+            options,
+        );
+        assert_eq!(
+            cache.dir,
+            crate::services::data_paths::paths()
+                .root
+                .join("merope/turn-keyforms")
+                .join(SITE_KEY)
+        );
+    }
+
+    /// The key of `b"master"` drawn by `openai`/`m` and decomposed on `a/b`.
+    const SITE_KEY: &str = "ddb0d52168cc84eecf6f5838a67e493b";
 
     #[tokio::test]
     async fn pruning_keeps_the_masters_used_last() {

@@ -54,7 +54,6 @@ enum Side {
 /// What judging any side needs.
 struct Judging<'a> {
     id: &'a str,
-    user_id: i32,
     generation: &'a image_generation::ImageGenerationConfig,
     reference: &'a image_generation::ImageReference,
     size: (u32, u32),
@@ -74,7 +73,6 @@ struct Judging<'a> {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn judge_turns(
     id: &str,
-    user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     reference: &image_generation::ImageReference,
     size: (u32, u32),
@@ -87,7 +85,6 @@ pub(super) async fn judge_turns(
 ) -> ApiResult<Judgements> {
     let judging = Judging {
         id,
-        user_id,
         generation,
         reference,
         size,
@@ -145,7 +142,6 @@ impl Judging<'_> {
     async fn side(&self, index: usize, (psd, picture): Turned) -> ApiResult<Side> {
         let Self {
             id,
-            user_id,
             generation,
             reference,
             size: (width, height),
@@ -173,22 +169,15 @@ impl Judging<'_> {
             done += 1;
             cache.write(&marker, done.to_string().as_bytes()).await;
             tracing::info!(side, attempt = done, faults = ?best.faults, fringe = ?best.fringe, head = ?best.head, "turned drawing redrew what a turn keeps; drawing it again");
-            let again = match draw_turn(
-                user_id,
-                generation,
-                &turn_prompts()[index],
-                reference,
-                width,
-                height,
-            )
-            .await
-            {
-                Ok(png) => png,
-                Err(error) => {
-                    tracing::warn!(side, ?error, "turned drawing could not be drawn again");
-                    break;
-                }
-            };
+            let again =
+                match draw_turn(generation, &turn_prompts()[index], reference, width, height).await
+                {
+                    Ok(png) => png,
+                    Err(error) => {
+                        tracing::warn!(side, ?error, "turned drawing could not be drawn again");
+                        break;
+                    }
+                };
             update(id, |job| job.stage = Stage::Decomposing);
             let bytes = axum::body::Bytes::from(again.clone());
             let (psd, settled) =

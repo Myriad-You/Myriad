@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::services::rig_jobs::Storage;
+
 /// Jobs kept for one master (one portrait in one slot); older ones are removed.
 pub(super) const KEEP_PER_MASTER: usize = 2;
 const META: &str = "archive.json";
@@ -91,10 +93,15 @@ pub(super) struct FigureFiles {
     pub decomposition: Vec<u8>,
 }
 
-pub(super) fn archive_root() -> PathBuf {
-    crate::services::data_paths::paths()
-        .root
-        .join("merope/turn-archive")
+/// Where an owner's kept jobs are.
+pub(super) fn archive_root(storage: &Storage) -> PathBuf {
+    storage.root().join("turn-archive")
+}
+
+/// Where the site's kept jobs are: the ones its pages list, download,
+/// upload, delete and use again.
+pub(super) fn site_root() -> PathBuf {
+    archive_root(&Storage::site())
 }
 
 /// An id this module made: a timestamp and random hex, nothing that walks paths.
@@ -131,10 +138,15 @@ fn figure_file(media_type: &str) -> &'static str {
     }
 }
 
-/// Writes a job whole (into a temporary directory, then renamed) and drops
-/// the oldest jobs of the same master past KEEP_PER_MASTER.
-pub(super) async fn save(mut meta: ArchiveMeta, files: &ArchiveFiles) -> std::io::Result<String> {
-    save_in(&archive_root(), &mut meta, files).await
+/// Writes a job whole in its owner's storage (into a temporary directory,
+/// then renamed) and drops the oldest jobs of the same master past
+/// KEEP_PER_MASTER.
+pub(super) async fn save(
+    storage: &Storage,
+    mut meta: ArchiveMeta,
+    files: &ArchiveFiles,
+) -> std::io::Result<String> {
+    save_in(&archive_root(storage), &mut meta, files).await
 }
 
 async fn save_in(
@@ -198,7 +210,7 @@ async fn prune_master(root: &Path, kept: &ArchiveMeta) {
 
 /// Every kept job, newest first.
 pub(super) async fn list() -> Vec<ArchiveMeta> {
-    list_in(&archive_root()).await
+    list_in(&site_root()).await
 }
 
 async fn list_in(root: &Path) -> Vec<ArchiveMeta> {
@@ -233,11 +245,11 @@ const RESULT_REF: &str = "turn-archive:";
 
 /// Whether the archive still has a job's result (its baked decomposition and
 /// keys), without reading them.
-pub(super) async fn has_result(id: &str) -> bool {
+pub(super) async fn has_result(storage: &Storage, id: &str) -> bool {
     if !valid_id(id) {
         return false;
     }
-    let dir = archive_root().join(id);
+    let dir = archive_root(storage).join(id);
     for file in [BAKED, KEYFORMS] {
         if !tokio::fs::try_exists(dir.join(file)).await.unwrap_or(false) {
             return false;
@@ -246,8 +258,8 @@ pub(super) async fn has_result(id: &str) -> bool {
     true
 }
 
-pub(super) async fn read_meta(id: &str) -> Option<ArchiveMeta> {
-    read_meta_in(&archive_root(), id).await
+pub(super) async fn read_meta(storage: &Storage, id: &str) -> Option<ArchiveMeta> {
+    read_meta_in(&archive_root(storage), id).await
 }
 
 async fn read_meta_in(root: &Path, id: &str) -> Option<ArchiveMeta> {
@@ -259,8 +271,11 @@ async fn read_meta_in(root: &Path, id: &str) -> Option<ArchiveMeta> {
 }
 
 /// A kept job's inputs and outputs.
-pub(super) async fn read_files(meta: &ArchiveMeta) -> std::io::Result<ArchiveFiles> {
-    read_files_in(&archive_root(), meta).await
+pub(super) async fn read_files(
+    storage: &Storage,
+    meta: &ArchiveMeta,
+) -> std::io::Result<ArchiveFiles> {
+    read_files_in(&archive_root(storage), meta).await
 }
 
 async fn read_files_in(root: &Path, meta: &ArchiveMeta) -> std::io::Result<ArchiveFiles> {
@@ -292,8 +307,11 @@ async fn read_files_in(root: &Path, meta: &ArchiveMeta) -> std::io::Result<Archi
 }
 
 /// What a kept job hands the importer: its decomposition and its keys.
-pub(super) async fn read_result(meta: &ArchiveMeta) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
-    let dir = archive_root().join(&meta.id);
+pub(super) async fn read_result(
+    storage: &Storage,
+    meta: &ArchiveMeta,
+) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
+    let dir = archive_root(storage).join(&meta.id);
     Ok((
         tokio::fs::read(dir.join(BAKED)).await?,
         tokio::fs::read(dir.join(KEYFORMS)).await?,
@@ -304,7 +322,7 @@ pub(super) async fn delete(id: &str) -> std::io::Result<bool> {
     if !valid_id(id) {
         return Ok(false);
     }
-    match tokio::fs::remove_dir_all(archive_root().join(id)).await {
+    match tokio::fs::remove_dir_all(site_root().join(id)).await {
         Ok(()) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error),
@@ -313,7 +331,7 @@ pub(super) async fn delete(id: &str) -> std::io::Result<bool> {
 
 /// A kept job as one zip (stored: PNG and PSD do not compress further).
 pub(super) fn zip_blocking(id: &str) -> std::io::Result<Vec<u8>> {
-    zip_in(&archive_root(), id)
+    zip_in(&site_root(), id)
 }
 
 fn zip_in(root: &Path, id: &str) -> std::io::Result<Vec<u8>> {
@@ -344,7 +362,7 @@ fn zip_in(root: &Path, id: &str) -> std::io::Result<Vec<u8>> {
 /// again), arriving in pieces: kept beside the archives, under a name the
 /// listing passes over, until it is read back.
 pub(super) fn upload_path(upload: &str) -> Option<PathBuf> {
-    valid_id(upload).then(|| archive_root().join(format!(".upload-{upload}.zip")))
+    valid_id(upload).then(|| site_root().join(format!(".upload-{upload}.zip")))
 }
 
 /// Largest upload taken (and all its files read out), and largest file in it.
@@ -355,7 +373,7 @@ const UPLOAD_STALE: std::time::Duration = std::time::Duration::from_secs(6 * 60 
 
 /// Drops uploads left unfinished.
 pub(super) async fn prune_uploads() {
-    let Ok(mut entries) = tokio::fs::read_dir(archive_root()).await else {
+    let Ok(mut entries) = tokio::fs::read_dir(site_root()).await else {
         return;
     };
     while let Ok(Some(entry)) = entries.next_entry().await {

@@ -444,7 +444,6 @@ async fn a_check_that_fails_sends_no_turn_back() {
     };
     let turns = Turns {
         id: "none",
-        user_id: 0,
         generation: &generation,
         reference: &reference,
         size: (1, 1),

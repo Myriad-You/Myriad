@@ -38,7 +38,6 @@ pub(super) fn turn_prompts() -> [String; 4] {
 
 /// One turned drawing of the master, at the master's size.
 pub(super) async fn draw_turn(
-    user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     prompt: &str,
     reference: &image_generation::ImageReference,
@@ -66,7 +65,7 @@ pub(super) async fn draw_turn(
         .await?;
         image_generation::load_generated_bytes(generated).await
     };
-    let (bytes, _) = super::live::detached(super::live::drawing_attribution(user_id), call)
+    let (bytes, _) = super::live::detached(super::live::drawing_attribution(), call)
         .await
         .ok_or_else(|| internal_error("a turned drawing's call stopped"))?
         .map_err(portrait_generation_provider_error)?;
@@ -243,7 +242,6 @@ impl TurnedSteps for Turns<'_> {
     async fn draw_again(&self, index: usize) -> ApiResult<Vec<u8>> {
         let (width, height) = self.size;
         draw_turn(
-            self.user_id,
             self.generation,
             &turn_prompts()[index],
             self.reference,
@@ -289,7 +287,6 @@ pub(super) async fn keep_redrawn(cache: &TurnCache, index: usize, png: &[u8]) {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn redraw_misfit(
     id: &str,
-    user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     reference: &image_generation::ImageReference,
     (width, height): (u32, u32),
@@ -322,16 +319,7 @@ pub(super) async fn redraw_misfit(
         before,
         "turned drawing's front hair not followed; drawing it again"
     );
-    let png = match draw_turn(
-        user_id,
-        generation,
-        &turn_prompts()[index],
-        reference,
-        width,
-        height,
-    )
-    .await
-    {
+    let png = match draw_turn(generation, &turn_prompts()[index], reference, width, height).await {
         Ok(png) => png,
         Err(error) => {
             tracing::warn!(side, ?error, "turned drawing could not be drawn again");

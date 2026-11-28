@@ -23,16 +23,15 @@ use crate::{
         require_merope_enabled, require_owner,
     },
     middleware::auth::Claims,
-    services::image_generation,
+    services::{image_generation, rig_jobs::Storage},
 };
 
 /// Enlarged pictures kept, the newest; one per figure master in use.
 const KEEP: usize = 8;
 
-fn root() -> PathBuf {
-    crate::services::data_paths::paths()
-        .root
-        .join("merope/figure-picture")
+/// Where an owner's enlarged pictures are kept.
+fn root(storage: &Storage) -> PathBuf {
+    storage.root().join("figure-picture")
 }
 
 fn file_in(root: &Path, master: &[u8]) -> PathBuf {
@@ -42,8 +41,8 @@ fn file_in(root: &Path, master: &[u8]) -> PathBuf {
 }
 
 /// The enlarged picture of a master, if one was made.
-pub(super) async fn read(master: &[u8]) -> Option<Vec<u8>> {
-    read_in(&root(), master).await
+pub(super) async fn read(storage: &Storage, master: &[u8]) -> Option<Vec<u8>> {
+    read_in(&root(storage), master).await
 }
 
 async fn read_in(root: &Path, master: &[u8]) -> Option<Vec<u8>> {
@@ -51,8 +50,8 @@ async fn read_in(root: &Path, master: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Keeps a master's enlarged picture, dropping the oldest made past KEEP.
-pub(super) async fn write(master: &[u8], picture: &[u8]) {
-    write_in(&root(), master, picture).await
+pub(super) async fn write(storage: &Storage, master: &[u8], picture: &[u8]) {
+    write_in(&root(storage), master, picture).await
 }
 
 async fn write_in(root: &Path, master: &[u8], picture: &[u8]) {
@@ -100,7 +99,9 @@ pub async fn get_full_body_figure_picture(
     let reference = image_generation::load_local_reference(&master.asset_id)
         .await
         .map_err(|_| missing_picture())?;
-    let picture = read(&reference.bytes).await.ok_or_else(missing_picture)?;
+    let picture = read(&Storage::site(), &reference.bytes)
+        .await
+        .ok_or_else(missing_picture)?;
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, HeaderValue::from_static("image/png"))

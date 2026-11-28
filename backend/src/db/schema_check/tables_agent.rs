@@ -1142,8 +1142,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("kind", "character varying").not_null(),
                 ColumnDef::new("caller", "character varying").not_null(),
                 ColumnDef::new("owner_user_id", "integer"),
+                ColumnDef::new("owner_scope", "character varying")
+                    .not_null()
+                    .default_value("'site'"),
                 ColumnDef::new("subject", "character varying"),
                 ColumnDef::new("input", "jsonb").not_null(),
+                ColumnDef::new("pipeline_input", "jsonb"),
                 ColumnDef::new("state", "character varying")
                     .not_null()
                     .default_value("'queued'"),

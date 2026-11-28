@@ -139,7 +139,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `Idempotency-Key` `rig_job_keys`（进度、租约、取消、出错、结果放在哪、花费记在账上的哪个 id、
 /// 每一步的耗时与算力；`rig_jobs.sql`，随 004 与 `ensure_rig_jobs_tables` 一起建；占位任务的部分
 /// 索引带 WHERE，不进 `get_expected_indexes`）。旧二进制不认识它们也照常启动。
-pub const SCHEMA_VERSION: &str = "2026.11.26.1";
+/// 2026.11.28.2：`rig_jobs` 加 `owner_scope`（任务归谁、做出来的东西放在谁那里；旧行和旧二进制
+/// 写的行默认 `site`）和 `pipeline_input`（管线自己的输入：哪张图、做成什么；旧行为空）
+/// （`rig_jobs.sql`，旧库走同一份文件里的 ADD COLUMN IF NOT EXISTS 和通用 ADD）。旧二进制不认识它们也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.28.2";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

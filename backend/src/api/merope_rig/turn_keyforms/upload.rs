@@ -31,7 +31,7 @@ pub async fn put_turn_archive_piece(
     let path = archive::upload_path(&upload).ok_or_else(|| bad_request("Invalid upload id"))?;
     if piece.offset == 0 {
         archive::prune_uploads().await;
-        tokio::fs::create_dir_all(archive::archive_root())
+        tokio::fs::create_dir_all(archive::site_root())
             .await
             .map_err(internal_error)?;
         let _ = tokio::fs::remove_file(&path).await;
@@ -137,10 +137,13 @@ async fn finish_upload(
     }
     // A figure's decomposition was cut from its enlarged picture: the
     // importer checks it against that picture, kept by the master.
+    let site = rig_jobs::Storage::site();
     if let Some(figure) = &files.figure
-        && figure_picture::read(&reference.bytes).await.is_none()
+        && figure_picture::read(&site, &reference.bytes)
+            .await
+            .is_none()
     {
-        figure_picture::write(&reference.bytes, &figure.master).await;
+        figure_picture::write(&site, &reference.bytes, &figure.master).await;
     }
     let uploaded_id = kept.id.clone();
     let meta = ArchiveMeta {
@@ -153,7 +156,9 @@ async fn finish_upload(
         bytes: 0,
         ..kept
     };
-    let id = archive::save(meta, &files).await.map_err(internal_error)?;
+    let id = archive::save(&site, meta, &files)
+        .await
+        .map_err(internal_error)?;
     tracing::info!(archive = %id, uploaded = %uploaded_id, "turn keys archive uploaded");
     Ok(Json(json!({ "id": id })))
 }
